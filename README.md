@@ -15,14 +15,18 @@ extern crate t4rust_derive;
 #[derive(Templatable)]
 // Specify the path to the template file here
 #[TemplatablePath = "./mytemplate.tt"]
+// Add this attribute if you want to get debug parsing information
+//#[TemplatableDebug]
 struct Example {
     // Add fields to the struct you want to use in the template
     name: String,
     food: String,
+    num: i32,
 }
 
 fn main() {
-    println!("{}", Example { name: "Splamy".into(), food: "Cake".into() });
+    // Generate your template by formating it.
+    println!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
 }
 ```
 
@@ -30,14 +34,19 @@ fn main() {
 ```rust
 Hello From Template!
 My Name is: <# write!(f, "{}", self.name)?; #>
-I like to eat <#= self.food #>
+I like to eat <#= self.food #>.
+<# for num in 0..self.num { #>Num:<#= num + 1 #>
+<# } #>
 ```
 
 Output:
 ```
 Hello From Template!
 My Name is: Splamy
-I like to eat Cake
+I like to eat Cake.
+Num:1
+Num:2
+Num:3
 ```
 
 You can simply write rust code withing code blocks.
@@ -47,3 +56,5 @@ If you want to write a `<#` in template text without starting a code block
 simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
 You dont need to duplicate the `<#` within code blocks and `#>` not in
 template text blocks.
+
+You can use `<#= expr #>` to print out a single expression.

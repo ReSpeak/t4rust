@@ -18,12 +18,25 @@ use syn::*;
 use syn::MetaItem::*;
 use TemplatePart::*;
 
-#[proc_macro_derive(Templatable, attributes(TemplatablePath))]
+macro_rules! dbg_println {
+    ($inf:ident) => { if $inf.debug_print { println!(); } };
+    ($inf:ident, $fmt:expr) => { if $inf.debug_print { println!($fmt); } };
+    ($inf:ident, $fmt:expr, $($arg:tt)*) => { if $inf.debug_print { println!($fmt, $($arg)*); } };
+}
+
+macro_rules! dbg_print {
+    ($inf:ident) => { if $inf.debug_print { print!(); } };
+    ($inf:ident, $fmt:expr) => { if $inf.debug_print { print!($fmt); } };
+    ($inf:ident, $fmt:expr, $($arg:tt)*) => { if $inf.debug_print { print!($fmt, $($arg)*); } };
+}
+
+#[proc_macro_derive(Templatable, attributes(TemplatablePath, TemplatableDebug))]
 pub fn transform_template(input: TokenStream) -> TokenStream {
     let s = input.to_string();
     let ast = syn::parse_derive_input(&s).unwrap();
 
     let mut path: Option<PathBuf> = None;
+    let mut info = TemplateInfo { debug_print: false };
 
     for attr in ast.attrs {
         match attr.value {
@@ -33,6 +46,9 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
                 } else {
                     panic!("[TemplatablePath] value must be a string.");
                 }
+            },
+            Word(name) => if name == "TemplatableDebug" {
+                info.debug_print = true;
             },
             _ => {}
         }
@@ -46,9 +62,11 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let read = read_from_file(path).expect("Could not read file");
 
     // Transform template file
-    let data = transform(read.as_bytes()).expect("Transform failed!");
+    let data = transform(read.as_bytes(), &info).expect("Transform failed!");
 
-    debug_to_file(path, &data);
+    if info.debug_print {
+        debug_to_file(path, &data);
+    }
 
     // Build code from template
     let mut builder = String::new();
@@ -70,7 +88,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         }
     }
 
-    println!("Generated Code:\n{}", builder);
+    dbg_println!(info, "Generated Code:\n{}", builder);
     let tokens = syn::parse_token_trees(&builder).expect("Parsing template code failed!");
 
     // Build frame and insert
@@ -97,7 +115,6 @@ fn read_from_file(path: &Path) -> Result<String, std::io::Error> {
     Ok(contents)
 }
 
-#[allow(dead_code)]
 fn debug_to_file(path: &Path, data: &[TemplatePart]) {
     let mut pathbuf = PathBuf::new();
     pathbuf.push(path);
@@ -125,38 +142,38 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 }
 
 /// Transforms template code into an intermediate representation
-fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
+fn transform(input: &[u8], info: &TemplateInfo) -> Result<Vec<TemplatePart>, TemplateError> {
     let mut cur = input;
 
     let mut builder: Vec<TemplatePart> = Vec::new();
 
-    println!("Reading template");
+    dbg_println!(info, "Reading template");
 
     let mut is_text = true;
     let mut is_expr = false;
 
     'mloop: while cur.len() > 0 {
         if is_text {
-            print!("Templ");
+            dbg_print!(info, "Templ");
             let read = read_text(cur);
             match read {
                 Done(rest, done) => {
                     builder.push(Text(done.to_vec()));
-                    print!(" take: {:?}", String::from_utf8(done.to_vec()));
+                    dbg_print!(info, " take: {:?}", String::from_utf8(done.to_vec()));
                     cur = rest;
 
                     if let Done(rest, _) = expression_start(cur) {
-                        print!(" xstart");
+                        dbg_print!(info, " xstart");
                         is_text = false;
                         is_expr = true;
                         cur = rest;
                     } else if let Done(rest, _) = code_start(cur) {
-                        print!(" cstart");
+                        dbg_print!(info, " cstart");
                         is_text = false;
                         is_expr = false;
                         cur = rest;
                     } else if let Done(rest, _) = double_code_start(cur) {
-                        print!(" double");
+                        dbg_print!(info, " double");
                         builder.push(Text(b"<#".to_vec()));
                         cur = rest;
                     }
@@ -168,7 +185,7 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
                             break 'mloop;
                         }
                     }
-                    println!("Error at text {:?}", err);
+                    dbg_println!(info, "Error at text {:?}", err);
                     return Err(TemplateError { index: 0 });
                 }
                 Incomplete(n) => {
@@ -178,12 +195,12 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
                             break 'mloop;
                         }
                     }
-                    println!("Missing at text {:?}", n);
+                    dbg_println!(info, "Missing at text {:?}", n);
                     return Err(TemplateError { index: 0 });
                 }
             }
         } else {
-            print!("Code");
+            dbg_print!(info, "Code");
             match read_code(cur) {
                 Done(rest, done) => {
                     if is_expr {
@@ -191,37 +208,37 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
                     } else {
                         builder.push(Code(done.to_vec()));
                     }
-                    print!(" take: {:?}", String::from_utf8(done.to_vec()));
+                    dbg_print!(info, " take: {:?}", String::from_utf8(done.to_vec()));
                     cur = rest;
 
                     if let Done(rest, _) = code_end(cur) {
-                        print!(" cend");
+                        dbg_print!(info, " cend");
                         is_text = true;
                         cur = rest;
                     } else if let Done(rest, _) = double_code_end(cur) {
-                        print!(" double");
+                        dbg_print!(info, " double");
                         builder.push(Code(b"#>".to_vec()));
                         cur = rest;
                     }
                 }
                 Error(err) => {
-                    println!("Error at code {:?}", err);
+                    dbg_println!(info, "Error at code {:?}", err);
                     return Err(TemplateError { index: 0 });
                 }
                 Incomplete(n) => {
-                    println!("Missing at code {:?}", n);
+                    dbg_println!(info, "Missing at code {:?}", n);
                     return Err(TemplateError { index: 0 });
                 }
             }
         }
 
-        println!(" Rest: {:?}", String::from_utf8(cur.to_vec()));
+        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
         if cur.len() == 0 {
             break 'mloop;
         }
     }
 
-    println!("Template ok!");
+    dbg_println!(info, "\nTemplate ok!");
 
     let combined = normalize_transform(builder);
     Result::Ok(combined)
@@ -328,4 +345,8 @@ enum TemplatePartType {
     Code,
     Text,
     Expr,
+}
+
+struct TemplateInfo {
+    debug_print: bool,
 }
