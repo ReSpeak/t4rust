@@ -48,6 +48,8 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     // Transform template file
     let data = transform(read.as_bytes()).expect("Transform failed!");
 
+    debug_to_file(path, &data);
+
     // Build code from template
     let mut builder = String::new();
     for part in data {
@@ -59,6 +61,10 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
             }
             Code(x) => {
                 builder.push_str(String::from_utf8(x).unwrap().as_ref());
+            }
+            Expr(x) => {
+                builder
+                    .push_str(format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref());
             }
         }
     }
@@ -91,20 +97,24 @@ fn read_from_file(path: &Path) -> Result<String, std::io::Error> {
 }
 
 #[allow(dead_code)]
-fn debug_to_file(path: &Path, data: Vec<TemplatePart>) {
+fn debug_to_file(path: &Path, data: &[TemplatePart]) {
     let mut pathbuf = PathBuf::new();
     pathbuf.push(path);
     pathbuf.set_extension("tt.out");
     let writepath = pathbuf.as_path();
     if let Ok(mut file) = File::create(writepath) {
         for var in data {
-            match var {
-                Code(x) => {
+            match *var {
+                Code(ref x) => {
                     write!(file, "Code:").unwrap();
                     file.write_all(&x).unwrap();
                 }
-                Text(x) => {
+                Text(ref x) => {
                     write!(file, "Text:").unwrap();
+                    file.write_all(&x).unwrap();
+                }
+                Expr(ref x) => {
+                    write!(file, "Expr:").unwrap();
                     file.write_all(&x).unwrap();
                 }
             }
@@ -122,6 +132,7 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
     println!("Reading template");
 
     let mut is_text = true;
+    let mut is_expr = false;
 
     'mloop: while cur.len() > 0 {
         if is_text {
@@ -133,9 +144,15 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
                     print!(" take: {:?}", String::from_utf8(done.to_vec()));
                     cur = rest;
 
-                    if let Done(rest, _) = code_start(cur) {
+                    if let Done(rest, _) = expression_start(cur) {
+                        print!(" xstart");
+                        is_text = false;
+                        is_expr = true;
+                        cur = rest;
+                    } else if let Done(rest, _) = code_start(cur) {
                         print!(" cstart");
                         is_text = false;
+                        is_expr = false;
                         cur = rest;
                     } else if let Done(rest, _) = double_code_start(cur) {
                         print!(" double");
@@ -162,7 +179,11 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
             print!("Code");
             match read_code(cur) {
                 Done(rest, done) => {
-                    builder.push(Code(done.to_vec()));
+                    if is_expr {
+                        builder.push(Expr(done.to_vec()));
+                    } else {
+                        builder.push(Code(done.to_vec()));
+                    }
                     print!(" take: {:?}", String::from_utf8(done.to_vec()));
                     cur = rest;
 
@@ -201,7 +222,7 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
 
 /// Melds multiple identical Parts into one
 fn normalize_transform(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
-    let mut was_text = true;
+    let mut last_type = TemplatePartType::None;
     let mut combined: Vec<TemplatePart> = Vec::new();
     let mut tmp_build: Vec<u8> = Vec::new();
     for item in data {
@@ -210,12 +231,16 @@ fn normalize_transform(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                 if u.len() == 0 {
                     continue;
                 }
-                if was_text {
+                if last_type != TemplatePartType::Code {
                     if tmp_build.len() > 0 {
-                        combined.push(Text(tmp_build));
+                        match last_type {
+                            TemplatePartType::None | TemplatePartType::Code => panic!(),
+                            TemplatePartType::Text => combined.push(Text(tmp_build)),
+                            TemplatePartType::Expr => combined.push(Expr(tmp_build)),
+                        }
                     }
                     tmp_build = Vec::new();
-                    was_text = false;
+                    last_type = TemplatePartType::Code;
                 }
                 tmp_build.extend(u);
             }
@@ -223,22 +248,40 @@ fn normalize_transform(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                 if u.len() == 0 {
                     continue;
                 }
-                if !was_text {
+                if last_type != TemplatePartType::Text {
                     if tmp_build.len() > 0 {
-                        combined.push(Code(tmp_build));
+                        match last_type {
+                            TemplatePartType::None | TemplatePartType::Text => panic!(),
+                            TemplatePartType::Code => combined.push(Code(tmp_build)),
+                            TemplatePartType::Expr => combined.push(Expr(tmp_build)),
+                        }
                     }
                     tmp_build = Vec::new();
-                    was_text = true;
+                    last_type = TemplatePartType::Text;
                 }
+                tmp_build.extend(u);
+            }
+            Expr(u) => {
+                if tmp_build.len() > 0 {
+                    match last_type {
+                        TemplatePartType::None => panic!(),
+                        TemplatePartType::Code => combined.push(Code(tmp_build)),
+                        TemplatePartType::Text => combined.push(Text(tmp_build)),
+                        TemplatePartType::Expr => combined.push(Expr(tmp_build)),
+                    }
+                }
+                tmp_build = Vec::new();
+                last_type = TemplatePartType::Expr;
                 tmp_build.extend(u);
             }
         }
     }
     if tmp_build.len() > 0 {
-        if was_text {
-            combined.push(Text(tmp_build));
-        } else {
-            combined.push(Code(tmp_build));
+        match last_type {
+            TemplatePartType::None => {}
+            TemplatePartType::Code => combined.push(Code(tmp_build)),
+            TemplatePartType::Text => combined.push(Text(tmp_build)),
+            TemplatePartType::Expr => combined.push(Expr(tmp_build)),
         }
     }
     combined
@@ -248,6 +291,7 @@ named!(
     code_start,
     do_parse!(first: tag!("<#") >> not!(tag!("<#")) >> (first))
 );
+named!(expression_start, do_parse!(first: tag!("<#=") >> (first)));
 named!(read_text, take_until!("<#"));
 named!(double_code_start, tag!("<#<#"));
 
@@ -268,4 +312,13 @@ struct TemplateError {
 enum TemplatePart {
     Code(Vec<u8>),
     Text(Vec<u8>),
+    Expr(Vec<u8>),
+}
+
+#[derive(PartialEq)]
+enum TemplatePartType {
+    None,
+    Code,
+    Text,
+    Expr,
 }

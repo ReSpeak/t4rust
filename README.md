@@ -18,29 +18,32 @@ extern crate t4rust_derive;
 struct Example {
     // Add fields to the struct you want to use in the template
     name: String,
+    food: String,
 }
 
 fn main() {
-    println!("{}", Example { name: "Splamy".into() });
+    println!("{}", Example { name: "Splamy".into(), food: "Cake".into() });
 }
 ```
 
 `mytemplate.tt`:
 ```rust
 Hello From Template!
-My Name is: <# writeln!(f, "{}", self.name)?; #>
+My Name is: <# write!(f, "{}", self.name)?; #>
+I like to eat <#= self.food #>
 ```
 
 Output:
 ```
 Hello From Template!
 My Name is: Splamy
+I like to eat Cake
 ```
 
 You can simply write rust code withing code blocks.
 
 Code is written within `<#` and `#>` blocks.
 If you want to write a `<#` in template text without starting a code block
-simpy write it twice: `<#<#`. Same goes for the `#>` in code blocks.
+simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
 You dont need to duplicate the `<#` within code blocks and `#>` not in
 template text blocks.
