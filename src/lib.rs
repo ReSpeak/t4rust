@@ -63,8 +63,9 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
                 builder.push_str(String::from_utf8(x).unwrap().as_ref());
             }
             Expr(x) => {
-                builder
-                    .push_str(format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref());
+                builder.push_str(
+                    format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref(),
+                );
             }
         }
     }
@@ -171,6 +172,12 @@ fn transform(input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
                     return Err(TemplateError { index: 0 });
                 }
                 Incomplete(n) => {
+                    if let Done(rest, done) = till_end(cur) {
+                        if rest.len() == 0 {
+                            builder.push(Text(done.to_vec()));
+                            break 'mloop;
+                        }
+                    }
                     println!("Missing at text {:?}", n);
                     return Err(TemplateError { index: 0 });
                 }
