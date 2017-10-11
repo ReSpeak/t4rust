@@ -1,0 +1,12 @@
+[package]
+name = "t4rust-derive"
+version = "0.1.0"
+authors = ["Splamy <splamyn@gmail.com>"]
+
+[dependencies]
+nom = "^3.2"
+quote = "^0.3"
+syn = "^0.11"
+
+[lib]
+proc-macro = true
