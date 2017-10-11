@@ -5,18 +5,18 @@ extern crate proc_macro;
 extern crate quote;
 extern crate syn;
 
-use proc_macro::TokenStream;
 use std::path::Path;
 use std::vec::Vec;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::prelude::*;
-use nom::IResult::*;
 use std::result::Result;
 use std::option::Option;
-use TemplatePart::*;
+use nom::IResult::*;
+use proc_macro::TokenStream;
 use syn::*;
 use syn::MetaItem::*;
+use TemplatePart::*;
 
 #[proc_macro_derive(Templatable, attributes(TemplatablePath))]
 pub fn transform_template(input: TokenStream) -> TokenStream {
@@ -26,40 +26,27 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let mut path: Option<PathBuf> = None;
 
     for attr in ast.attrs {
-        println!("Attr: {:?}", attr);
         match attr.value {
-            NameValue(name, value) => {
-                if name == "TemplatablePath" {
-                    if let Lit::Str(val_string, _) = value {
-                        path = Some(PathBuf::from(val_string));
-                    } else {
-                        panic!("[TemplatablePath] value must be a string.");
-                    }
+            NameValue(name, value) => if name == "TemplatablePath" {
+                if let Lit::Str(val_string, _) = value {
+                    path = Some(PathBuf::from(val_string));
+                } else {
+                    panic!("[TemplatablePath] value must be a string.");
                 }
-            }
+            },
             _ => {}
         }
     }
 
-    if let None = path {
-        panic!("Please specify a #[TemplatablePath=\"<path>\"] atribute with the template file path.");
-    }
-    let path = &path.unwrap();
+    let path = &path.expect(
+        "Please specify a #[TemplatablePath=\"<path>\"] atribute with the template file path.",
+    );
 
     // Read template file
-    let read = read_from_file(path);
-    if let Err(read_err) = read {
-        panic!("Could not read file: {}!", read_err);
-    }
-    let read = read.unwrap();
+    let read = read_from_file(path).expect("Could not read file");
 
     // Transform template file
-    let data = transform(read.as_bytes());
-    if let Err(_) = data {
-        // error handling here
-        panic!("Transform failed!");
-    }
-    let data = data.unwrap();
+    let data = transform(read.as_bytes()).expect("Transform failed!");
 
     // Build code from template
     let mut builder = String::new();
@@ -77,11 +64,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     }
 
     println!("Generated Code:\n{}", builder);
-    let tokens = syn::parse_token_trees(&builder);
-    if let Err(parse_err) = tokens {
-        panic!("Parsing template code failed: {}!", parse_err);
-    }
-    let tokens = tokens.unwrap();
+    let tokens = syn::parse_token_trees(&builder).expect("Parsing template code failed!");
 
     // Build frame and insert
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
