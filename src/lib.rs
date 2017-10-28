@@ -110,6 +110,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let path = &path.expect(
         format!("Please specify a #[{}=\"<path>\"] atribute with the template file path.", TEMPLATE_PATH_MACRO).as_str(),
     );
+    let path = &path.canonicalize().expect("Could not canonicalize path");
 
     // Read template file
     let read = read_from_file(path).expect("Could not read file");
@@ -147,11 +148,13 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     // Build frame and insert
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     let name = &ast.ident;
+    let path_str = path.to_str();
 
     let frame = quote!{
         use std::fmt;
         impl #impl_generics fmt::Display for #name #ty_generics #where_clause {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                let _ = include_bytes!(#path_str);
                 #(#tokens)*
                 Ok(())
             }
