@@ -3,5 +3,4 @@
 Cargo.lock
 
 # Testing templates
-*.tt
 *.tt.out

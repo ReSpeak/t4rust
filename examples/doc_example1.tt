@@ -1,0 +1,5 @@
+Hello From Template!
+My Name is: <# write!(f, "{}", self.name)?; #>
+I like to eat <#= self.food #>.
+<# for num in 0..self.num { #>Num:<#= num + 1 #>
+<# } #>
