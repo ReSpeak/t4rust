@@ -2,6 +2,20 @@
 name = "t4rust-derive"
 version = "0.1.1"
 authors = ["Splamy <splamyn@gmail.com>"]
+description = """
+t4rust is a compile-time templating-engine which allows you to write plain
+rust code in your template.
+"""
+repository = "https://github.com/ReSpeak/t4rust"
+readme = "README.md"
+keywords = ["T4"]
+categories = ["template-engine"]
+license = "MIT/Apache-2.0"
+include = [
+    "src/*",
+    "README.md",
+    "Cargo.toml"
+]
 
 [dependencies]
 nom = "^3.2"
@@ -10,3 +24,5 @@ syn = "^0.11"
 
 [lib]
 proc-macro = true
+name = "t4rust_derive"
+path = "src/lib.rs"

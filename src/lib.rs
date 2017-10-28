@@ -1,5 +1,5 @@
 //! # About
-//! t4rust is a minimal templating engine, inspired by the T4 syntax.
+//! t4rust is a minimal templating engine, inspired by the [T4](https://docs.microsoft.com/en-us/visualstudio/modeling/code-generation-and-t4-text-templates) syntax.
 //!
 //! # Example
 //! A simple example how to create a template.
@@ -25,8 +25,27 @@
 //!     // Generate your template by formating it.
 //!     let result = format!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
 //!     println!("{}", result);
-//!     assert_eq!(result, "Hello From Template!\nMy Name is: Splamy\nI like to eat Cake.\nNum:1\nNum:2\nNum:3\n");
+//!#    assert_eq!(result, "Hello From Template!\nMy Name is: Splamy\nI like to eat Cake.\nNum:1\nNum:2\nNum:3\n");
 //! }
+//! ```
+//!
+//! `doc_example1.tt`:
+//! ```
+//! Hello From Template!
+//! My Name is: <# write!(f, "{}", self.name)?; #>
+//! I like to eat <#= self.food #>.
+//! <# for num in 0..self.num { #>Num:<#= num + 1 #>
+//! <# } #>
+//! ```
+//!
+//! Output:
+//! ```
+//! Hello From Template!
+//! My Name is: Splamy
+//! I like to eat Cake.
+//! Num:1
+//! Num:2
+//! Num:3
 //! ```
 
 #[macro_use]

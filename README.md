@@ -3,20 +3,19 @@
 ## About
 t4rust is a minimal templating engine, inspired by the [T4](https://docs.microsoft.com/en-us/visualstudio/modeling/code-generation-and-t4-text-templates) syntax.
 
-## Getting started
+## Example
 A simple example how to create a template.
 
-`main.rs`:
 ```rust
 #[macro_use]
 extern crate t4rust_derive;
 
 // Add this attribute to use a template
-#[derive(Templatable)]
+#[derive(Template)]
 // Specify the path to the template file here
-#[TemplatablePath = "./mytemplate.tt"]
+#[TemplatePath = "./examples/doc_example1.tt"]
 // Add this attribute if you want to get debug parsing information
-//#[TemplatableDebug]
+//#[TemplateDebug]
 struct Example {
     // Add fields to the struct you want to use in the template
     name: String,
@@ -25,12 +24,13 @@ struct Example {
 }
 
 fn main() {
-    // Generate your template by formatting it.
-    println!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
+    // Generate your template by formating it.
+    let result = format!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
+    println!("{}", result);
 }
 ```
 
-`mytemplate.tt`:
+`doc_example1.tt`:
 ```rust
 Hello From Template!
 My Name is: <# write!(f, "{}", self.name)?; #>
@@ -40,7 +40,7 @@ I like to eat <#= self.food #>.
 ```
 
 Output:
-```
+```rust
 Hello From Template!
 My Name is: Splamy
 I like to eat Cake.
@@ -58,3 +58,11 @@ You dont need to duplicate the `<#` within code blocks and `#>` not in
 template text blocks.
 
 You can use `<#= expr #>` to print out a single expression.
+
+# License
+Licensed under either of
+
+ * [Apache License, Version 2.0](LICENSE-APACHE)
+ * [MIT license](LICENSE-MIT)
+
+at your option.
