@@ -1,3 +1,34 @@
+//! # About
+//! t4rust is a minimal templating engine, inspired by the T4 syntax.
+//!
+//! # Example
+//! A simple example how to create a template.
+//!
+//! ```
+//! #[macro_use]
+//! extern crate t4rust_derive;
+//!
+//! // Add this attribute to use a template
+//! #[derive(Template)]
+//! // Specify the path to the template file here
+//! #[TemplatePath = "./examples/doc_example1.tt"]
+//! // Add this attribute if you want to get debug parsing information
+//! //#[TemplateDebug]
+//! struct Example {
+//!     // Add fields to the struct you want to use in the template
+//!     name: String,
+//!     food: String,
+//!     num: i32,
+//! }
+//!
+//! fn main() {
+//!     // Generate your template by formating it.
+//!     let result = format!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
+//!     println!("{}", result);
+//!     assert_eq!(result, "Hello From Template!\nMy Name is: Splamy\nI like to eat Cake.\nNum:1\nNum:2\nNum:3\n");
+//! }
+//! ```
+
 #[macro_use]
 extern crate nom;
 extern crate proc_macro;
@@ -30,7 +61,10 @@ macro_rules! dbg_print {
     ($inf:ident, $fmt:expr, $($arg:tt)*) => { if $inf.debug_print { print!($fmt, $($arg)*); } };
 }
 
-#[proc_macro_derive(Templatable, attributes(TemplatablePath, TemplatableDebug))]
+const TEMPLATE_PATH_MACRO: &str = "TemplatePath";
+const TEMPLATE_DEBUG_MACRO: &str = "TemplateDebug";
+
+#[proc_macro_derive(Template, attributes(TemplatePath, TemplateDebug))]
 pub fn transform_template(input: TokenStream) -> TokenStream {
     let s = input.to_string();
     let ast = syn::parse_derive_input(&s).unwrap();
@@ -40,14 +74,14 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
 
     for attr in ast.attrs {
         match attr.value {
-            NameValue(name, value) => if name == "TemplatablePath" {
+            NameValue(name, value) => if name == TEMPLATE_PATH_MACRO {
                 if let Lit::Str(val_string, _) = value {
                     path = Some(PathBuf::from(val_string));
                 } else {
-                    panic!("[TemplatablePath] value must be a string.");
+                    panic!("[{}] value must be a string.", TEMPLATE_PATH_MACRO);
                 }
             },
-            Word(name) => if name == "TemplatableDebug" {
+            Word(name) => if name == TEMPLATE_DEBUG_MACRO {
                 info.debug_print = true;
             },
             _ => {}
@@ -55,7 +89,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     }
 
     let path = &path.expect(
-        "Please specify a #[TemplatablePath=\"<path>\"] atribute with the template file path.",
+        format!("Please specify a #[{}=\"<path>\"] atribute with the template file path.", TEMPLATE_PATH_MACRO).as_str(),
     );
 
     // Read template file
@@ -74,7 +108,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         match part {
             Text(x) => {
                 builder.push_str(
-                    format!("write!(f, r#\"{}\"#)?;\n", String::from_utf8(x).unwrap()).as_ref(),
+                    format!("f.write_str(r#\"{}\"#)?;\n", String::from_utf8(x).unwrap()).as_ref(),
                 );
             }
             Code(x) => {
@@ -328,7 +362,7 @@ named!(double_code_end, tag!("#>#>"));
 
 named!(till_end, take_while!(|_| true));
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct TemplateError {
     index: usize,
 }

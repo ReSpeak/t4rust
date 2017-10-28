@@ -1,6 +1,6 @@
 [package]
 name = "t4rust-derive"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Splamy <splamyn@gmail.com>"]
 
 [dependencies]

@@ -25,7 +25,7 @@ struct Example {
 }
 
 fn main() {
-    // Generate your template by formating it.
+    // Generate your template by formatting it.
     println!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
 }
 ```
@@ -49,7 +49,7 @@ Num:2
 Num:3
 ```
 
-You can simply write rust code withing code blocks.
+You can simply write rust code within code blocks.
 
 Code is written within `<#` and `#>` blocks.
 If you want to write a `<#` in template text without starting a code block
