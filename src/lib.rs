@@ -115,8 +115,10 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     // Read template file
     let read = read_from_file(path).expect("Could not read file");
 
-    // Transform template file
-    let data = transform(read.as_bytes(), &info).expect("Transform failed!");
+    // Parse template file
+    let data = parse_all(&info, read.as_bytes()).expect("Parse failed!");
+
+    let data = parse_optimize(data);
 
     if info.debug_print {
         debug_to_file(path, &data);
@@ -139,6 +141,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
                     format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref(),
                 );
             }
+            Directive(_) => {}
         }
     }
 
@@ -191,6 +194,7 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
                     write!(file, "Expr:").unwrap();
                     file.write_all(&x).unwrap();
                 }
+                Directive(_) => {}
             }
             write!(file, "\n").unwrap();
         }
@@ -198,110 +202,122 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 }
 
 /// Transforms template code into an intermediate representation
-fn transform(input: &[u8], info: &TemplateInfo) -> Result<Vec<TemplatePart>, TemplateError> {
-    let mut cur = input;
-
+fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
     let mut builder: Vec<TemplatePart> = Vec::new();
+    let mut cur = input;
 
     dbg_println!(info, "Reading template");
 
-    let mut is_text = true;
-    let mut is_expr = false;
-
     'mloop: while cur.len() > 0 {
-        if is_text {
-            dbg_print!(info, "Templ");
-            let read = read_text(cur);
-            match read {
-                Done(rest, done) => {
-                    builder.push(Text(done.to_vec()));
-                    dbg_print!(info, " take: {:?}", String::from_utf8(done.to_vec()));
-                    cur = rest;
+        let (crest, content) = parse_text(info, cur)?;
+        builder.push(Text(content));
+        cur = crest;
 
-                    if let Done(rest, _) = expression_start(cur) {
-                        dbg_print!(info, " xstart");
-                        is_text = false;
-                        is_expr = true;
-                        cur = rest;
-                    } else if let Done(rest, _) = code_start(cur) {
-                        dbg_print!(info, " cstart");
-                        is_text = false;
-                        is_expr = false;
-                        cur = rest;
-                    } else if let Done(rest, _) = double_code_start(cur) {
-                        dbg_print!(info, " double");
-                        builder.push(Text(b"<#".to_vec()));
-                        cur = rest;
-                    }
-                }
-                Error(err) => {
-                    if let Done(rest, done) = till_end(cur) {
-                        if rest.len() == 0 {
-                            builder.push(Text(done.to_vec()));
-                            break 'mloop;
-                        }
-                    }
-                    dbg_println!(info, "Error at text {:?}", err);
-                    return Err(TemplateError { index: 0 });
-                }
-                Incomplete(n) => {
-                    if let Done(rest, done) = till_end(cur) {
-                        if rest.len() == 0 {
-                            builder.push(Text(done.to_vec()));
-                            break 'mloop;
-                        }
-                    }
-                    dbg_println!(info, "Missing at text {:?}", n);
-                    return Err(TemplateError { index: 0 });
-                }
-            }
-        } else {
-            dbg_print!(info, "Code");
-            match read_code(cur) {
-                Done(rest, done) => {
-                    if is_expr {
-                        builder.push(Expr(done.to_vec()));
-                    } else {
-                        builder.push(Code(done.to_vec()));
-                    }
-                    dbg_print!(info, " take: {:?}", String::from_utf8(done.to_vec()));
-                    cur = rest;
-
-                    if let Done(rest, _) = code_end(cur) {
-                        dbg_print!(info, " cend");
-                        is_text = true;
-                        cur = rest;
-                    } else if let Done(rest, _) = double_code_end(cur) {
-                        dbg_print!(info, " double");
-                        builder.push(Code(b"#>".to_vec()));
-                        cur = rest;
-                    }
-                }
-                Error(err) => {
-                    dbg_println!(info, "Error at code {:?}", err);
-                    return Err(TemplateError { index: 0 });
-                }
-                Incomplete(n) => {
-                    dbg_println!(info, "Missing at code {:?}", n);
-                    return Err(TemplateError { index: 0 });
-                }
-            }
+        // Read code block
+        if let Done(rest, _) = expression_start(cur) {
+            dbg_print!(info, " expression start");
+            let (crest, content) = parse_code(info, rest)?;
+            builder.push(Expr(content));
+            cur = crest;
+        } else if let Done(rest, _) = template_directive_start(cur) {
+            dbg_print!(info, " directive start");
+            let (crest, content) =  parse_code(info, rest)?;
+            builder.push(Directive(content));
+            cur = crest;
+        } else if let Done(rest, _) = code_start(cur) {
+            dbg_print!(info, " code start");
+            let (crest, content) =  parse_code(info, rest)?;
+            builder.push(Code(content));
+            cur = crest;
         }
 
         dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
-        if cur.len() == 0 {
-            break 'mloop;
-        }
     }
 
     dbg_println!(info, "\nTemplate ok!");
 
-    let combined = normalize_transform(builder);
-    Result::Ok(combined)
+    Result::Ok(builder)
+}
+
+fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec<u8>), TemplateError> {
+    let mut content = Vec::<u8>::new();
+    let mut cur = input;
+
+    loop {
+        let read = read_text(cur);
+        match read {
+            Done(rest, done) => {
+                content.extend(done);
+                dbg_print!(info, " take text: {:?}", String::from_utf8(done.to_vec()));
+                if rest.len() == 0 {
+                    return Ok((rest, content));
+                }
+                cur = rest;
+
+                if let Done(rest, _) = double_code_start(cur) {
+                    dbg_print!(info, " double-escape");
+                    content.extend(b"<#");
+
+                    if rest.len() == 0 {
+                        return Ok((rest, content));
+                    }
+                    cur = rest;
+                } else if done.len() == 0 {
+                    return Ok((rest, content));
+                }
+            }
+            _ => {
+                if let Done(rest, done) = till_end(cur) {
+                    if rest.len() == 0 {
+                        content.extend(done);
+                        return Ok((rest, content));
+                    }
+                }
+                match read {
+                    Error(err) => dbg_println!(info, "Error at text {:?}", err),
+                    Incomplete(n) => dbg_println!(info, "Missing at text {:?}", n),
+                    _ => unreachable!(),
+                }
+                return Err(TemplateError { index: 0 });
+            }
+        }
+    }
+}
+
+fn parse_code<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec<u8>), TemplateError> {
+    let mut content = Vec::<u8>::new();
+    let mut cur = input;
+
+    loop {
+        match read_code(cur) {
+            Done(rest, done) => {
+                dbg_print!(info, " take code: {:?}", String::from_utf8(done.to_vec()));
+                content.extend(done);
+                cur = rest;
+
+                if let Done(rest, _) = code_end(cur) {
+                    dbg_print!(info, " code end");
+                    return Ok((rest, content));
+                } else if let Done(rest, _) = double_code_end(cur) {
+                    dbg_print!(info, " double-escape");
+                    content.extend(b"#>");
+                    cur = rest;
+                }
+            }
+            Error(err) => {
+                dbg_println!(info, "Error at code {:?}", err);
+                return Err(TemplateError { index: 0 });
+            }
+            Incomplete(n) => {
+                dbg_println!(info, "Missing at code {:?}", n);
+                return Err(TemplateError { index: 0 });
+            }
+        }
+    }
 }
 
 /// Melds multiple identical Parts into one
-fn normalize_transform(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
+fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
     let mut last_type = TemplatePartType::None;
     let mut combined: Vec<TemplatePart> = Vec::new();
     let mut tmp_build: Vec<u8> = Vec::new();
@@ -354,6 +370,7 @@ fn normalize_transform(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                 last_type = TemplatePartType::Expr;
                 tmp_build.extend(u);
             }
+            Directive(_) => {}
         }
     }
     if tmp_build.len() > 0 {
@@ -372,6 +389,7 @@ named!(
     do_parse!(first: tag!("<#") >> not!(tag!("<#")) >> (first))
 );
 named!(expression_start, do_parse!(first: tag!("<#=") >> (first)));
+named!(template_directive_start, do_parse!(first: tag!("<#@") >> (first)));
 named!(read_text, take_until!("<#"));
 named!(double_code_start, tag!("<#<#"));
 
@@ -393,6 +411,7 @@ enum TemplatePart {
     Code(Vec<u8>),
     Text(Vec<u8>),
     Expr(Vec<u8>),
+    Directive(Vec<u8>),
 }
 
 #[derive(PartialEq)]

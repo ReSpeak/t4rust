@@ -1,2 +1,2 @@
 Change this file, and the next `cargo build` will notice.
-My Name is: <# write!(f, "{}", self.name)?; #>
+My Name is: <#= self.name #>.
