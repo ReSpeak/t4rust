@@ -67,6 +67,7 @@ use proc_macro::TokenStream;
 use syn::*;
 use syn::MetaItem::*;
 use TemplatePart::*;
+use nom::{alphanumeric, space};
 
 macro_rules! dbg_println {
     ($inf:ident) => { if $inf.debug_print { println!(); } };
@@ -222,7 +223,12 @@ fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, Tem
         } else if let Done(rest, _) = template_directive_start(cur) {
             dbg_print!(info, " directive start");
             let (crest, content) =  parse_code(info, rest)?;
-            builder.push(Directive(content));
+            let dir = parse_directive(&content);
+            dbg_println!(info, " Directive: {:?}", dir);
+            match dir {
+                Done(_, dir) => builder.push(Directive(dir)),
+                _ => return Err(TemplateError { index: 0 }),
+            }
             cur = crest;
         } else if let Done(rest, _) = code_start(cur) {
             dbg_print!(info, " code start");
@@ -402,16 +408,41 @@ named!(double_code_end, tag!("#>#>"));
 
 named!(till_end, take_while!(|_| true));
 
+named!(parse_directive<&[u8], TemplateDirective>, do_parse!(
+    opt!(call!(space)) >>
+    dir_name : call!(alphanumeric) >>
+    dir_param : many0!(call!(parse_directive_param)) >>
+    (TemplateDirective { name: String::from_utf8(dir_name.to_vec()).unwrap(), params: dir_param } )
+));
+
+named!(parse_directive_param<&[u8], (String, String) >, do_parse!(
+    opt!(call!(space)) >>
+    key : call!(alphanumeric) >>
+    tag!("=") >>
+    tag!("\"") >>
+    value : escaped!(call!(alphanumeric), '\\', one_of!("\"\\")) >>
+    tag!("\"") >>
+    opt!(call!(space)) >>
+    ( String::from_utf8(key.to_vec()).unwrap(),
+      String::from_utf8(value.to_vec()).unwrap().replace("\\\"","\"").replace("\\\\","\\") )
+));
+
 #[derive(Debug)]
 struct TemplateError {
     index: usize,
+}
+
+#[derive(Debug)]
+struct TemplateDirective {
+    name: String,
+    params: Vec<(String,String)>,
 }
 
 enum TemplatePart {
     Code(Vec<u8>),
     Text(Vec<u8>),
     Expr(Vec<u8>),
-    Directive(Vec<u8>),
+    Directive(TemplateDirective),
 }
 
 #[derive(PartialEq)]
