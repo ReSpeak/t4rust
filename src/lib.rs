@@ -415,16 +415,22 @@ named!(parse_directive<&[u8], TemplateDirective>, do_parse!(
     (TemplateDirective { name: String::from_utf8(dir_name.to_vec()).unwrap(), params: dir_param } )
 ));
 
+named!(not_quote, is_not!("\\\""));
+
 named!(parse_directive_param<&[u8], (String, String) >, do_parse!(
     opt!(call!(space)) >>
     key : call!(alphanumeric) >>
     tag!("=") >>
     tag!("\"") >>
-    value : escaped!(call!(alphanumeric), '\\', one_of!("\"\\")) >>
+    value : escaped_transform!(call!(not_quote), '\\',
+        alt!(
+            tag!("\\") => { |_| b"\\".as_ref() }
+            | tag!("\"") => { |_| b"\"".as_ref() }
+        )) >>
     tag!("\"") >>
     opt!(call!(space)) >>
     ( String::from_utf8(key.to_vec()).unwrap(),
-      String::from_utf8(value.to_vec()).unwrap().replace("\\\"","\"").replace("\\\\","\\") )
+      String::from_utf8(value.to_vec()).unwrap() )
 ));
 
 #[derive(Debug)]
