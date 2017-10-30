@@ -62,12 +62,12 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::result::Result;
 use std::option::Option;
-use nom::IResult::*;
 use proc_macro::TokenStream;
 use syn::*;
 use syn::MetaItem::*;
-use TemplatePart::*;
+use nom::IResult::*;
 use nom::{alphanumeric, space};
+use ::TemplatePart::*;
 
 macro_rules! dbg_println {
     ($inf:ident) => { if $inf.debug_print { println!(); } };
@@ -89,14 +89,14 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let s = input.to_string();
     let ast = syn::parse_derive_input(&s).unwrap();
 
-    let mut path: Option<PathBuf> = None;
+    let mut path: Option<String> = None;
     let mut info = TemplateInfo { debug_print: false };
 
     for attr in ast.attrs {
         match attr.value {
             NameValue(name, value) => if name == TEMPLATE_PATH_MACRO {
                 if let Lit::Str(val_string, _) = value {
-                    path = Some(PathBuf::from(val_string));
+                    path = Some(val_string);
                 } else {
                     panic!("[{}] value must be a string.", TEMPLATE_PATH_MACRO);
                 }
@@ -108,10 +108,13 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         }
     }
 
-    let path = &path.expect(
+    // Get template path
+    let mut path_absolute = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path_absolute.push(&path.expect(
         format!("Please specify a #[{}=\"<path>\"] atribute with the template file path.", TEMPLATE_PATH_MACRO).as_str(),
-    );
-    let path = &path.canonicalize().expect("Could not canonicalize path");
+    ));
+    let path = &path_absolute.canonicalize().expect("Could not canonicalize path");
+    dbg_println!(info, "Looking for template in \"{}\"", path.to_str().unwrap());
 
     // Read template file
     let read = read_from_file(path).expect("Could not read file");
@@ -287,6 +290,8 @@ fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec
                 return Err(TemplateError { index: 0 });
             }
         }
+        
+        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
     }
 }
 
