@@ -90,7 +90,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let ast = syn::parse_derive_input(&s).unwrap();
 
     let mut path: Option<String> = None;
-    let mut info = TemplateInfo { debug_print: false };
+    let mut info = TemplateInfo { debug_print: false, clean_whitespace: false };
 
     for attr in ast.attrs {
         match attr.value {
@@ -109,7 +109,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     }
 
     // Get template path
-    let mut path_absolute = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut path_absolute = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     path_absolute.push(&path.expect(
         format!("Please specify a #[{}=\"<path>\"] atribute with the template file path.", TEMPLATE_PATH_MACRO).as_str(),
     ));
@@ -121,6 +121,8 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
 
     // Parse template file
     let data = parse_all(&info, read.as_bytes()).expect("Parse failed!");
+
+    //let data = parse_postprocess(&mut info, data);
 
     let data = parse_optimize(data);
 
@@ -290,7 +292,7 @@ fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec
                 return Err(TemplateError { index: 0 });
             }
         }
-        
+
         dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
     }
 }
@@ -395,6 +397,25 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
     combined
 }
 
+fn parse_postprocess(info: &mut TemplateInfo, data: Vec<TemplatePart>) -> Vec<TemplatePart> {
+    let mut result: Vec<TemplatePart> = Vec::new();
+
+    let mut data_iter = data.iter();
+    loop {
+        if let Some(data_item) = data_iter.next() {
+            
+        } else {
+            break;
+        }
+    }
+
+    result
+}
+
+fn apply_directive(info: &mut TemplateInfo, directive: TemplateDirective) {
+
+}
+
 named!(
     code_start,
     do_parse!(first: tag!("<#") >> not!(tag!("<#")) >> (first))
@@ -466,4 +487,5 @@ enum TemplatePartType {
 
 struct TemplateInfo {
     debug_print: bool,
+    clean_whitespace: bool,
 }
