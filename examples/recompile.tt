@@ -1,3 +1,3 @@
-<#@ template debug="true" fancy="t\\r\"ue\\" #>
+<#@ template debug="false" cleanws="true" #>
 Change this file, and the next `cargo build` will notice.
 My Name is: <#= self.name #>.

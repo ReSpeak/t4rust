@@ -120,15 +120,16 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let read = read_from_file(path).expect("Could not read file");
 
     // Parse template file
-    let data = parse_all(&info, read.as_bytes()).expect("Parse failed!");
-
-    //let data = parse_postprocess(&mut info, data);
-
-    let data = parse_optimize(data);
+    let mut data = parse_all(&mut info, read.as_bytes()).expect("Parse failed!");
 
     if info.debug_print {
         debug_to_file(path, &data);
     }
+
+    parse_postprocess(&mut info, &mut data);
+
+    let data = parse_optimize(data);
+
 
     // Build code from template
     let mut builder = String::new();
@@ -200,7 +201,10 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
                     write!(file, "Expr:").unwrap();
                     file.write_all(&x).unwrap();
                 }
-                Directive(_) => {}
+                Directive(ref dir) => {
+                    write!(file, "Dir:").unwrap();
+                    write!(file, "{:?}", dir).unwrap();
+                }
             }
             write!(file, "\n").unwrap();
         }
@@ -208,7 +212,7 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 }
 
 /// Transforms template code into an intermediate representation
-fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
+fn parse_all(info: &mut TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
     let mut builder: Vec<TemplatePart> = Vec::new();
     let mut cur = input;
 
@@ -218,6 +222,7 @@ fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, Tem
         let (crest, content) = parse_text(info, cur)?;
         builder.push(Text(content));
         cur = crest;
+        dbg_println!(info, "");
 
         // Read code block
         if let Done(rest, _) = expression_start(cur) {
@@ -231,7 +236,10 @@ fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, Tem
             let dir = parse_directive(&content);
             dbg_println!(info, " Directive: {:?}", dir);
             match dir {
-                Done(_, dir) => builder.push(Directive(dir)),
+                Done(_, dir) => {
+                    apply_directive(info, &dir);
+                    builder.push(Directive(dir));
+                }
                 _ => return Err(TemplateError { index: 0 }),
             }
             cur = crest;
@@ -242,7 +250,7 @@ fn parse_all(info: &TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, Tem
             cur = crest;
         }
 
-        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
+        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()).unwrap());
     }
 
     dbg_println!(info, "\nTemplate ok!");
@@ -259,11 +267,11 @@ fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec
         match read {
             Done(rest, done) => {
                 content.extend(done);
-                dbg_print!(info, " take text: {:?}", String::from_utf8(done.to_vec()));
                 if rest.len() == 0 {
                     return Ok((rest, content));
                 }
                 cur = rest;
+                dbg_print!(info, " take text: {:?}", String::from_utf8(done.to_vec()).unwrap());
 
                 if let Done(rest, _) = double_code_start(cur) {
                     dbg_print!(info, " double-escape");
@@ -304,7 +312,7 @@ fn parse_code<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec
     loop {
         match read_code(cur) {
             Done(rest, done) => {
-                dbg_print!(info, " take code: {:?}", String::from_utf8(done.to_vec()));
+                dbg_print!(info, " take code: {:?}", String::from_utf8(done.to_vec()).unwrap());
                 content.extend(done);
                 cur = rest;
 
@@ -397,23 +405,76 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
     combined
 }
 
-fn parse_postprocess(info: &mut TemplateInfo, data: Vec<TemplatePart>) -> Vec<TemplatePart> {
-    let mut result: Vec<TemplatePart> = Vec::new();
+fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
+    let mut was_b_clean = None;
+    let mut clean_index = 0;
 
-    let mut data_iter = data.iter();
-    loop {
-        if let Some(data_item) = data_iter.next() {
-            
-        } else {
-            break;
+    for i in 0..(data.len() - 2) {
+        let tri = data[i..(i+3)].as_mut();
+        if let Directive(ref dir) = tri[0] {
+            apply_directive(info, dir);
+        }
+
+        if !info.clean_whitespace ||
+           !tri[0].is_text() || !tri[1].is_code() || !tri[2].is_text() {
+            continue;
+        }
+
+        let mut res_a = None;
+        if clean_index == i && was_b_clean.is_some() {
+            res_a = was_b_clean;
+        } else if let Text(ref text_a) = tri[0] {
+            let rev_txt: Vec<u8> = text_a.iter().rev().cloned().collect();
+            if let Done(_,a_len) = is_ws_till_newline(&rev_txt) {
+                res_a = Some(a_len);
+            } else {
+                continue;
+            }
+        }
+
+        let mut res_b = None;
+        if let Text(ref text_b) = tri[2] {
+            if let Done(_,b_len) = is_ws_till_newline(&text_b) {
+                res_b = Some(b_len);
+            } else {
+                continue;
+            }
+        }
+
+        // start trimming
+
+        if let Text(ref mut text_a) = tri[0] {
+            let res_a = res_a.unwrap();
+            let len = text_a.len();
+            text_a.drain((len-(res_a.0))..len);
+        }
+
+        if let Text(ref mut text_b) = tri[2] {
+            let rev_txt: Vec<u8> = text_b.iter().rev().cloned().collect();
+            if let Done(_,b_len) = is_ws_till_newline(&rev_txt) {
+                was_b_clean = Some(b_len);
+                clean_index = i + 2;
+            }
+
+            let res_b = res_b.unwrap();
+            text_b.drain(0..(res_b.0 + res_b.1));
         }
     }
-
-    result
 }
 
-fn apply_directive(info: &mut TemplateInfo, directive: TemplateDirective) {
-
+fn apply_directive(info: &mut TemplateInfo, directive: &TemplateDirective) {
+    match directive.name.as_ref() {
+        "template" => {
+            for &(ref key, ref value) in &directive.params {
+                match key.as_ref() {
+                    "debug" => info.debug_print = value.parse::<bool>().unwrap(),
+                    "cleanws" => info.clean_whitespace = value.parse::<bool>().unwrap(),
+                    _ => println!("Unrecognized template parameter \"{}\" in \"{}\"", key, directive.name),
+                }
+            }
+        }
+        _ => println!("Unrecognized template dirctive \"{}\"", directive.name),
+    }
 }
 
 named!(
@@ -459,6 +520,13 @@ named!(parse_directive_param<&[u8], (String, String) >, do_parse!(
       String::from_utf8(value.to_vec()).unwrap() )
 ));
 
+named!(is_ws_till_newline<(usize, usize)>,do_parse!(
+    lenws: opt!(is_a_s!(" \t")) >>
+    lenlb: alt_complete!(tag!("\r\n") | tag!("\n\r") | tag!("\n") | tag!("\r")) >>
+    ( if let Some(ws) = lenws { ws.len() } else { 0 } , lenlb.len() ) )
+);
+
+
 #[derive(Debug)]
 struct TemplateError {
     index: usize,
@@ -470,11 +538,22 @@ struct TemplateDirective {
     params: Vec<(String,String)>,
 }
 
+#[derive(Debug)]
 enum TemplatePart {
-    Code(Vec<u8>),
     Text(Vec<u8>),
+    Code(Vec<u8>),
     Expr(Vec<u8>),
     Directive(TemplateDirective),
+}
+
+impl TemplatePart {
+    fn is_text(&self) -> bool {
+        if let &Text(_) = self { true } else { false }
+    }
+
+    fn is_code(&self) -> bool {
+        if let &Text(_) = self { false } else { true }
+    }
 }
 
 #[derive(PartialEq)]

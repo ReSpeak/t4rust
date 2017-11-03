@@ -3,7 +3,6 @@ extern crate t4rust_derive;
 
 #[derive(Template)]
 #[TemplatePath = "./examples/recompile.tt"]
-#[TemplateDebug]
 struct Example {
     name: String
 }
