@@ -161,9 +161,8 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let path_str = path.to_str();
 
     let frame = quote!{
-        use std::fmt;
-        impl #impl_generics fmt::Display for #name #ty_generics #where_clause {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        impl #impl_generics ::std::fmt::Display for #name #ty_generics #where_clause {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                 let _ = include_bytes!(#path_str);
                 #(#tokens)*
                 Ok(())
