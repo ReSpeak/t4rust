@@ -30,7 +30,7 @@
 //! ```
 //!
 //! `doc_example1.tt`:
-//! ```
+//! ```text
 //! Hello From Template!
 //! My Name is: <# write!(f, "{}", self.name)?; #>
 //! I like to eat <#= self.food #>.
@@ -39,7 +39,7 @@
 //! ```
 //!
 //! Output:
-//! ```
+//! ```text
 //! Hello From Template!
 //! My Name is: Splamy
 //! I like to eat Cake.
@@ -137,7 +137,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         match part {
             Text(x) => {
                 builder.push_str(
-                    format!("f.write_str(r#\"{}\"#)?;\n", String::from_utf8(x).unwrap()).as_ref(),
+                    generate_save_str_print(String::from_utf8(x).unwrap()).as_ref()
                 );
             }
             Code(x) => {
@@ -145,7 +145,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
             }
             Expr(x) => {
                 builder.push_str(
-                    format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref(),
+                    format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref()
                 );
             }
             Directive(_) => {}
@@ -171,6 +171,21 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     };
 
     frame.parse().unwrap()
+}
+
+fn generate_save_str_print(print_str: String) -> String {
+    let mut max_sharp_count = 0;
+    let mut cur_sharp_count = 0;
+
+    for c in print_str.chars() {
+        if c == '#' {
+            cur_sharp_count += 1;
+            max_sharp_count = std::cmp::max(max_sharp_count, cur_sharp_count);
+        }
+    }
+
+    let sharps = "#".repeat(max_sharp_count + 1);
+    format!("f.write_str(r{1}\"{0}\"{1})?;\n", print_str, sharps)
 }
 
 fn read_from_file(path: &Path) -> Result<String, std::io::Error> {
@@ -404,9 +419,14 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
     combined
 }
 
+/// Applies template directives like 'cleanws' and modifies the input
+/// accordingly.
 fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
     let mut was_b_clean = None;
     let mut clean_index = 0;
+
+    // if there are less than 3 blocks available we can't do any transformations
+    if data.len() < 3 { return; }
 
     for i in 0..(data.len() - 2) {
         let tri = data[i..(i+3)].as_mut();
