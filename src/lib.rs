@@ -51,6 +51,7 @@
 #[macro_use]
 extern crate nom;
 extern crate proc_macro;
+extern crate proc_macro2;
 #[macro_use]
 extern crate quote;
 extern crate syn;
@@ -64,7 +65,7 @@ use std::result::Result;
 use std::option::Option;
 use proc_macro::TokenStream;
 use syn::*;
-use syn::MetaItem::*;
+use syn::Meta::*;
 use nom::{Err, alphanumeric, space};
 use nom::types::CompleteStr;
 use ::TemplatePart::*;
@@ -86,25 +87,23 @@ const TEMPLATE_DEBUG_MACRO: &str = "TemplateDebug";
 
 #[proc_macro_derive(Template, attributes(TemplatePath, TemplateDebug))]
 pub fn transform_template(input: TokenStream) -> TokenStream {
-    let s = input.to_string();
-    let ast = syn::parse_derive_input(&s).unwrap();
+    let macro_input = parse_macro_input!(input as DeriveInput);
 
     let mut path: Option<String> = None;
     let mut info = TemplateInfo { debug_print: false, clean_whitespace: false };
 
-    for attr in ast.attrs {
-        match attr.value {
-            NameValue(name, value) => if name == TEMPLATE_PATH_MACRO {
-                if let Lit::Str(val_string, _) = value {
-                    path = Some(val_string);
-                } else {
-                    panic!("[{}] value must be a string.", TEMPLATE_PATH_MACRO);
-                }
-            },
-            Word(name) => if name == TEMPLATE_DEBUG_MACRO {
-                info.debug_print = true;
-            },
-            _ => {}
+    for attr in macro_input.attrs {
+        if let Some(meta) = attr.interpret_meta() {
+            match &meta {
+                NameValue(MetaNameValue { lit: Lit::Str(lit_str), .. }) =>
+                    if meta.name() == TEMPLATE_PATH_MACRO {
+                        path = Some(lit_str.value());
+                    },
+                Word(name) => if name == TEMPLATE_DEBUG_MACRO {
+                    info.debug_print = true;
+                },
+                _ => {}
+            }
         }
     }
 
@@ -151,11 +150,13 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     }
 
     dbg_println!(info, "Generated Code:\n{}", builder);
-    let tokens = syn::parse_token_trees(&builder).expect("Parsing template code failed!");
+    
+    //let tokens = syn::parse_str::<UnitStruct>(&builder).expect("Parsing template code failed!");
+    let tokens: proc_macro2::TokenStream = builder.parse().expect("Parsing template code failed!");
 
     // Build frame and insert
-    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    let name = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = macro_input.generics.split_for_impl();
+    let name = &macro_input.ident;
     let path_str = path.to_str();
 
     let frame = quote!{
@@ -168,7 +169,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         }
     };
 
-    frame.parse().unwrap()
+    proc_macro::TokenStream::from(frame)
 }
 
 fn generate_save_str_print(print_str: String) -> String {
@@ -527,8 +528,8 @@ named!(parse_directive_param<CompleteStr, (String, String)>, do_parse!(
     tag!("\"") >>
     value : escaped_transform!(call!(not_quote), '\\',
         alt!(
-              tag!("\\") => { |_| &"\\"[..] }
-            | tag!("\"") => { |_| &"\""[..] }
+              tag!("\\") => { |_| "\\" }
+            | tag!("\"") => { |_| "\"" }
         )) >>
     tag!("\"") >>
     opt!(call!(space)) >>
