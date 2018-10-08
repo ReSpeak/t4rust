@@ -180,6 +180,8 @@ fn generate_save_str_print(print_str: String) -> String {
         if c == '#' {
             cur_sharp_count += 1;
             max_sharp_count = std::cmp::max(max_sharp_count, cur_sharp_count);
+        } else {
+            cur_sharp_count = 0;
         }
     }
 
