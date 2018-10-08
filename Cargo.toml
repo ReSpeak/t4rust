@@ -18,7 +18,7 @@ include = [
 ]
 
 [dependencies]
-nom = "^3.2"
+nom = "^4.1"
 quote = "^0.3"
 syn = "^0.11"
 

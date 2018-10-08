@@ -65,8 +65,8 @@ use std::option::Option;
 use proc_macro::TokenStream;
 use syn::*;
 use syn::MetaItem::*;
-use nom::IResult::*;
-use nom::{alphanumeric, space};
+use nom::{Err, alphanumeric, space};
+use nom::types::CompleteStr;
 use ::TemplatePart::*;
 
 macro_rules! dbg_println {
@@ -120,7 +120,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let read = read_from_file(path).expect("Could not read file");
 
     // Parse template file
-    let mut data = parse_all(&mut info, read.as_bytes()).expect("Parse failed!");
+    let mut data = parse_all(&mut info, CompleteStr(&read)).expect("Parse failed!");
 
     if info.debug_print {
         debug_to_file(path, &data);
@@ -136,16 +136,14 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     for part in data {
         match part {
             Text(x) => {
-                builder.push_str(
-                    generate_save_str_print(String::from_utf8(x).unwrap()).as_ref()
-                );
+                builder.push_str(generate_save_str_print(x).as_ref());
             }
             Code(x) => {
-                builder.push_str(String::from_utf8(x).unwrap().as_ref());
+                builder.push_str(x.as_ref());
             }
             Expr(x) => {
                 builder.push_str(
-                    format!("write!(f, \"{{}}\", {})?;\n", String::from_utf8(x).unwrap()).as_ref()
+                    format!("write!(f, \"{{}}\", {})?;\n", x).as_ref()
                 );
             }
             Directive(_) => {}
@@ -205,19 +203,18 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
             match *var {
                 Code(ref x) => {
                     write!(file, "Code:").unwrap();
-                    file.write_all(&x).unwrap();
+                    file.write_all(x.as_bytes()).unwrap();
                 }
                 Text(ref x) => {
                     write!(file, "Text:").unwrap();
-                    file.write_all(&x).unwrap();
+                    file.write_all(x.as_bytes()).unwrap();
                 }
                 Expr(ref x) => {
                     write!(file, "Expr:").unwrap();
-                    file.write_all(&x).unwrap();
+                    file.write_all(x.as_bytes()).unwrap();
                 }
                 Directive(ref dir) => {
-                    write!(file, "Dir:").unwrap();
-                    write!(file, "{:?}", dir).unwrap();
+                    write!(file, "Dir:{:?}", dir).unwrap();
                 }
             }
             write!(file, "\n").unwrap();
@@ -226,45 +223,45 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 }
 
 /// Transforms template code into an intermediate representation
-fn parse_all(info: &mut TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>, TemplateError> {
+fn parse_all(info: &mut TemplateInfo, input: CompleteStr) -> Result<Vec<TemplatePart>, TemplateError> {
     let mut builder: Vec<TemplatePart> = Vec::new();
     let mut cur = input;
 
     dbg_println!(info, "Reading template");
 
-    'mloop: while cur.len() > 0 {
+    while cur.len() > 0 {
         let (crest, content) = parse_text(info, cur)?;
         builder.push(Text(content));
         cur = crest;
         dbg_println!(info, "");
 
         // Read code block
-        if let Done(rest, _) = expression_start(cur) {
+        if let Ok((rest, _)) = expression_start(cur) {
             dbg_print!(info, " expression start");
             let (crest, content) = parse_code(info, rest)?;
             builder.push(Expr(content));
             cur = crest;
-        } else if let Done(rest, _) = template_directive_start(cur) {
+        } else if let Ok((rest, _)) = template_directive_start(cur) {
             dbg_print!(info, " directive start");
             let (crest, content) =  parse_code(info, rest)?;
-            let dir = parse_directive(&content);
+            let dir = parse_directive(CompleteStr(&content));
             dbg_println!(info, " Directive: {:?}", dir);
             match dir {
-                Done(_, dir) => {
+                Ok((_, dir)) => {
                     apply_directive(info, &dir);
                     builder.push(Directive(dir));
                 }
                 _ => return Err(TemplateError { index: 0 }),
             }
             cur = crest;
-        } else if let Done(rest, _) = code_start(cur) {
+        } else if let Ok((rest, _)) = code_start(cur) {
             dbg_print!(info, " code start");
             let (crest, content) =  parse_code(info, rest)?;
             builder.push(Code(content));
             cur = crest;
         }
 
-        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()).unwrap());
+        dbg_println!(info, " Rest: {:?}", &cur);
     }
 
     dbg_println!(info, "\nTemplate ok!");
@@ -272,24 +269,24 @@ fn parse_all(info: &mut TemplateInfo, input: &[u8]) -> Result<Vec<TemplatePart>,
     Result::Ok(builder)
 }
 
-fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec<u8>), TemplateError> {
-    let mut content = Vec::<u8>::new();
+fn parse_text<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(CompleteStr<'a>, String), TemplateError> {
+    let mut content = String::new();
     let mut cur = input;
 
     loop {
         let read = read_text(cur);
         match read {
-            Done(rest, done) => {
-                content.extend(done);
+            Ok((rest, done)) => {
+                content.push_str(&done);
                 if rest.len() == 0 {
                     return Ok((rest, content));
                 }
                 cur = rest;
-                dbg_print!(info, " take text: {:?}", String::from_utf8(done.to_vec()).unwrap());
+                dbg_print!(info, " take text: {:?}", &done);
 
-                if let Done(rest, _) = double_code_start(cur) {
+                if let Ok((rest, _)) = double_code_start(cur) {
                     dbg_print!(info, " double-escape");
-                    content.extend(b"<#");
+                    content.push_str("<#");
 
                     if rest.len() == 0 {
                         return Ok((rest, content));
@@ -300,62 +297,62 @@ fn parse_text<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec
                 }
             }
             _ => {
-                if let Done(rest, done) = till_end(cur) {
+                if let Ok((rest, done)) = till_end(cur) {
                     if rest.len() == 0 {
-                        content.extend(done);
+                        content.push_str(&done);
                         return Ok((rest, content));
                     }
                 }
                 match read {
-                    Error(err) => dbg_println!(info, "Error at text {:?}", err),
-                    Incomplete(n) => dbg_println!(info, "Missing at text {:?}", n),
+                    Err(Err::Failure(context)) | Err(Err::Error(context)) => dbg_println!(info, "Error at text {:?}", context),
+                    Err(Err::Incomplete(sizey)) => dbg_println!(info, "Missing at text {:?}", sizey),
                     _ => unreachable!(),
                 }
-                return Err(TemplateError { index: 0 });
+                return Err(TemplateError { index: 1 });
             }
         }
 
-        dbg_println!(info, " Rest: {:?}", String::from_utf8(cur.to_vec()));
+        dbg_println!(info, " Rest: {:?}", &cur);
     }
 }
 
-fn parse_code<'a>(info: &TemplateInfo, input: &'a [u8]) -> Result<(&'a [u8], Vec<u8>), TemplateError> {
-    let mut content = Vec::<u8>::new();
+fn parse_code<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(CompleteStr<'a>, String), TemplateError> {
+    let mut content = String::new();
     let mut cur = input;
 
     loop {
         match read_code(cur) {
-            Done(rest, done) => {
-                dbg_print!(info, " take code: {:?}", String::from_utf8(done.to_vec()).unwrap());
-                content.extend(done);
+            Ok((rest, done)) => {
+                dbg_print!(info, " take code: {:?}", &done);
+                content.push_str(&done);
                 cur = rest;
 
-                if let Done(rest, _) = code_end(cur) {
+                if let Ok((rest, _)) = code_end(cur) {
                     dbg_print!(info, " code end");
                     return Ok((rest, content));
-                } else if let Done(rest, _) = double_code_end(cur) {
+                } else if let Ok((rest, _)) = double_code_end(cur) {
                     dbg_print!(info, " double-escape");
-                    content.extend(b"#>");
+                    content.push_str("#>");
                     cur = rest;
                 }
             }
-            Error(err) => {
-                dbg_println!(info, "Error at code {:?}", err);
-                return Err(TemplateError { index: 0 });
+            Err(Err::Failure(context)) | Err(Err::Error(context)) => {
+                dbg_println!(info, "Error at code {:?}", context);
+                return Err(TemplateError { index: 2 });
             }
-            Incomplete(n) => {
-                dbg_println!(info, "Missing at code {:?}", n);
-                return Err(TemplateError { index: 0 });
+            Err(Err::Incomplete(sizey)) => {
+                dbg_println!(info, "Missing at code {:?}", sizey);
+                return Err(TemplateError { index: 3 });
             }
         }
     }
 }
 
-/// Melds multiple identical Parts into one
+/// Merges multiple identical Parts into one
 fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
     let mut last_type = TemplatePartType::None;
-    let mut combined: Vec<TemplatePart> = Vec::new();
-    let mut tmp_build: Vec<u8> = Vec::new();
+    let mut combined = Vec::<TemplatePart>::new();
+    let mut tmp_build = String::new();
     for item in data {
         match item {
             Code(u) => {
@@ -370,10 +367,10 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                             TemplatePartType::Expr => combined.push(Expr(tmp_build)),
                         }
                     }
-                    tmp_build = Vec::new();
+                    tmp_build = String::new();
                     last_type = TemplatePartType::Code;
                 }
-                tmp_build.extend(u);
+                tmp_build.push_str(&u);
             }
             Text(u) => {
                 if u.len() == 0 {
@@ -387,10 +384,10 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                             TemplatePartType::Expr => combined.push(Expr(tmp_build)),
                         }
                     }
-                    tmp_build = Vec::new();
+                    tmp_build = String::new();
                     last_type = TemplatePartType::Text;
                 }
-                tmp_build.extend(u);
+                tmp_build.push_str(&u);
             }
             Expr(u) => {
                 if tmp_build.len() > 0 {
@@ -401,9 +398,9 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
                         TemplatePartType::Expr => combined.push(Expr(tmp_build)),
                     }
                 }
-                tmp_build = Vec::new();
+                tmp_build = String::new();
                 last_type = TemplatePartType::Expr;
-                tmp_build.extend(u);
+                tmp_build.push_str(&u);
             }
             Directive(_) => {}
         }
@@ -443,8 +440,8 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
         if clean_index == i && was_b_clean.is_some() {
             res_a = was_b_clean;
         } else if let Text(ref text_a) = tri[0] {
-            let rev_txt: Vec<u8> = text_a.iter().rev().cloned().collect();
-            if let Done(_,a_len) = is_ws_till_newline(&rev_txt) {
+            let rev_txt: String = text_a.chars().rev().collect();
+            if let Ok((_,a_len)) = is_ws_till_newline(CompleteStr(&rev_txt)) {
                 res_a = Some(a_len);
             } else {
                 continue;
@@ -453,7 +450,7 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
 
         let mut res_b = None;
         if let Text(ref text_b) = tri[2] {
-            if let Done(_,b_len) = is_ws_till_newline(&text_b) {
+            if let Ok((_,b_len)) = is_ws_till_newline(CompleteStr(&text_b)) {
                 res_b = Some(b_len);
             } else {
                 continue;
@@ -469,8 +466,8 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
         }
 
         if let Text(ref mut text_b) = tri[2] {
-            let rev_txt: Vec<u8> = text_b.iter().rev().cloned().collect();
-            if let Done(_,b_len) = is_ws_till_newline(&rev_txt) {
+            let rev_txt: String = text_b.chars().rev().collect();
+            if let Ok((_,b_len)) = is_ws_till_newline(CompleteStr(&rev_txt)) {
                 was_b_clean = Some(b_len);
                 clean_index = i + 2;
             }
@@ -497,49 +494,48 @@ fn apply_directive(info: &mut TemplateInfo, directive: &TemplateDirective) {
 }
 
 named!(
-    code_start,
+    code_start<CompleteStr, CompleteStr>,
     do_parse!(first: tag!("<#") >> not!(tag!("<#")) >> (first))
 );
-named!(expression_start, do_parse!(first: tag!("<#=") >> (first)));
-named!(template_directive_start, do_parse!(first: tag!("<#@") >> (first)));
-named!(read_text, take_until!("<#"));
-named!(double_code_start, tag!("<#<#"));
+named!(expression_start<CompleteStr, CompleteStr>, do_parse!(first: tag!("<#=") >> (first)));
+named!(template_directive_start<CompleteStr, CompleteStr>, do_parse!(first: tag!("<#@") >> (first)));
+named!(read_text<CompleteStr, CompleteStr>, take_until!("<#"));
+named!(double_code_start<CompleteStr, CompleteStr>, tag!("<#<#"));
 
 named!(
-    code_end,
+    code_end<CompleteStr, CompleteStr>,
     do_parse!(first: tag!("#>") >> not!(tag!("#>")) >> (first))
 );
-named!(read_code, take_until!("#>"));
-named!(double_code_end, tag!("#>#>"));
+named!(read_code<CompleteStr, CompleteStr>, take_until!("#>"));
+named!(double_code_end<CompleteStr, CompleteStr>, tag!("#>#>"));
 
-named!(till_end, take_while!(|_| true));
+named!(till_end<CompleteStr, CompleteStr>, take_while!(|_| true));
 
-named!(parse_directive<&[u8], TemplateDirective>, do_parse!(
+named!(parse_directive<CompleteStr, TemplateDirective>, do_parse!(
     opt!(call!(space)) >>
     dir_name : call!(alphanumeric) >>
     dir_param : many0!(call!(parse_directive_param)) >>
-    (TemplateDirective { name: String::from_utf8(dir_name.to_vec()).unwrap(), params: dir_param } )
+    (TemplateDirective { name: dir_name.to_string(), params: dir_param } )
 ));
 
-named!(not_quote, is_not!("\\\""));
+named!(not_quote<CompleteStr, CompleteStr>, is_not!("\\\""));
 
-named!(parse_directive_param<&[u8], (String, String) >, do_parse!(
+named!(parse_directive_param<CompleteStr, (String, String)>, do_parse!(
     opt!(call!(space)) >>
     key : call!(alphanumeric) >>
     tag!("=") >>
     tag!("\"") >>
     value : escaped_transform!(call!(not_quote), '\\',
         alt!(
-            tag!("\\") => { |_| b"\\".as_ref() }
-            | tag!("\"") => { |_| b"\"".as_ref() }
+              tag!("\\") => { |_| &"\\"[..] }
+            | tag!("\"") => { |_| &"\""[..] }
         )) >>
     tag!("\"") >>
     opt!(call!(space)) >>
-    ( String::from_utf8(key.to_vec()).unwrap(),
-      String::from_utf8(value.to_vec()).unwrap() )
+    (key.to_string(), value.to_string())
 ));
 
-named!(is_ws_till_newline<(usize, usize)>,do_parse!(
+named!(is_ws_till_newline<CompleteStr, (usize, usize)>,do_parse!(
     lenws: opt!(is_a_s!(" \t")) >>
     lenlb: alt_complete!(tag!("\r\n") | tag!("\n\r") | tag!("\n") | tag!("\r")) >>
     ( if let Some(ws) = lenws { ws.len() } else { 0 } , lenlb.len() ) )
@@ -559,9 +555,9 @@ struct TemplateDirective {
 
 #[derive(Debug)]
 enum TemplatePart {
-    Text(Vec<u8>),
-    Code(Vec<u8>),
-    Expr(Vec<u8>),
+    Text(String),
+    Code(String),
+    Expr(String),
     Directive(TemplateDirective),
 }
 

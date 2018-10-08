@@ -1,5 +1,7 @@
 # t4rust
 
+[![dependency status](https://deps.rs/repo/github/ReSpeak/t4rust/status.svg)](https://deps.rs/repo/github/ReSpeak/t4rust)
+
 {{readme}}
 
 You can simply write rust code within code blocks.

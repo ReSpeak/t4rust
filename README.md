@@ -1,5 +1,7 @@
 # t4rust
 
+[![dependency status](https://deps.rs/repo/github/ReSpeak/t4rust/status.svg)](https://deps.rs/repo/github/ReSpeak/t4rust)
+
 ## About
 t4rust is a minimal templating engine, inspired by the [T4](https://docs.microsoft.com/en-us/visualstudio/modeling/code-generation-and-t4-text-templates) syntax.
 
