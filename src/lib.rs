@@ -13,6 +13,7 @@
 //! // Specify the path to the template file here
 //! #[TemplatePath = "./examples/doc_example1.tt"]
 //! // Add this attribute if you want to get debug parsing information
+//! // This also enables writing temporary files, you might get better error messages.
 //! //#[TemplateDebug]
 //! struct Example {
 //!     // Add fields to the struct you want to use in the template
@@ -47,6 +48,25 @@
 //! Num:2
 //! Num:3
 //! ```
+//!
+//! # Syntax
+//!
+//! You can simply write rust code within code blocks.
+//!
+//! Code is written within `<#` and `#>` blocks.
+//! If you want to write a `<#` in template text without starting a code block
+//! simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
+//! You dont need to duplicate the `<#` within code blocks and `#>` not in
+//! template text blocks.
+//!
+//! You can use `<#= expr #>` to print out a single expression.
+//!
+//! Maybe you noticed the magical `f` in the template. This variable gives you
+//! access to the formatter and e.g. enables you to write functions in your
+//! template. `<# write!(f, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
+//!
+//! **Warning**: Make sure to never create a variable called `f`! You will get
+//! weird compiler errors.
 
 #[macro_use]
 extern crate nom;
@@ -56,6 +76,8 @@ extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 use std::path::Path;
 use std::vec::Vec;
 use std::path::PathBuf;
@@ -150,14 +172,14 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     }
 
     dbg_println!(info, "Generated Code:\n{}", builder);
-    
+
     //let tokens = syn::parse_str::<UnitStruct>(&builder).expect("Parsing template code failed!");
     let tokens: proc_macro2::TokenStream = builder.parse().expect("Parsing template code failed!");
 
     // Build frame and insert
     let (impl_generics, ty_generics, where_clause) = macro_input.generics.split_for_impl();
     let name = &macro_input.ident;
-    let path_str = path.to_str();
+    let path_str = path.to_str().expect("Invalid path");
 
     let frame = quote!{
         impl #impl_generics ::std::fmt::Display for #name #ty_generics #where_clause {
@@ -169,7 +191,43 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         }
     };
 
-    proc_macro::TokenStream::from(frame)
+    // We could return the code now. The problem is that span information are
+    // missing and the error messages are awful.
+    // So instead, we write to a file and include! this file, which still does
+    // not give us nice errors but at least includes source code.
+    if !info.debug_print {
+        proc_macro::TokenStream::from(frame)
+    } else {
+        // Unfortunately we have no access to OUT_DIR like build scripts so we
+        // try to emulate that partially.
+
+        // Use hash of template path as filename
+        let mut hasher = DefaultHasher::new();
+        hasher.write(path_str.as_bytes());
+
+        let out_dir = if let Ok(target_dir) = std::env::var("CARGO_TARGET_DIR") {
+            PathBuf::from(target_dir)
+        } else {
+            let dir = std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR not set");
+            PathBuf::from(dir).join("target")
+        };
+
+        let code_path = out_dir
+            .join("t4rust")
+            .join(&hasher.finish().to_string())
+            .with_extension("rs");
+
+        std::fs::create_dir_all(code_path.parent().unwrap())
+            .expect("Failed to create output path");
+
+        // Write file
+        std::fs::write(&code_path, frame.to_string().as_bytes())
+            .expect("Failed to write compiled template");
+
+        let code_path_str = code_path.to_str();
+        proc_macro::TokenStream::from(quote!{ include!(#code_path_str); })
+    }
 }
 
 fn generate_save_str_print(print_str: String) -> String {

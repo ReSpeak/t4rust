@@ -17,6 +17,7 @@ extern crate t4rust_derive;
 // Specify the path to the template file here
 #[TemplatePath = "./examples/doc_example1.tt"]
 // Add this attribute if you want to get debug parsing information
+// This also enables writing temporary files, you might get better error messages.
 //#[TemplateDebug]
 struct Example {
     // Add fields to the struct you want to use in the template
@@ -33,7 +34,7 @@ fn main() {
 ```
 
 `doc_example1.tt`:
-```rust
+```
 Hello From Template!
 My Name is: <# write!(f, "{}", self.name)?; #>
 I like to eat <#= self.food #>.
@@ -42,7 +43,7 @@ I like to eat <#= self.food #>.
 ```
 
 Output:
-```rust
+```
 Hello From Template!
 My Name is: Splamy
 I like to eat Cake.
@@ -50,6 +51,25 @@ Num:1
 Num:2
 Num:3
 ```
+
+## Syntax
+
+You can simply write rust code within code blocks.
+
+Code is written within `<#` and `#>` blocks.
+If you want to write a `<#` in template text without starting a code block
+simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
+You dont need to duplicate the `<#` within code blocks and `#>` not in
+template text blocks.
+
+You can use `<#= expr #>` to print out a single expression.
+
+Maybe you noticed the magical `f` in the template. This variable gives you
+access to the formatter and e.g. enables you to write functions in your
+template. `<# write!(f, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
+
+**Warning**: Make sure to never create a variable called `f`! You will get
+weird compiler errors.
 
 You can simply write rust code within code blocks.
 
