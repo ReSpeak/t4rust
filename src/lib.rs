@@ -26,14 +26,14 @@
 //!     // Generate your template by formating it.
 //!     let result = format!("{}", Example { name: "Splamy".into(), food: "Cake".into(), num: 3 });
 //!     println!("{}", result);
-//!#    assert_eq!(result, "Hello From Template!\nMy Name is: Splamy\nI like to eat Cake.\nNum:1\nNum:2\nNum:3\n");
+//!#    assert_eq!(result, "Hello From Template!\nMy Name is: Splamy\nI like to eat Cake.\nNum:1\nNum:2\nNum:3\n\n");
 //! }
 //! ```
 //!
 //! `doc_example1.tt`:
 //! ```text
 //! Hello From Template!
-//! My Name is: <# write!(f, "{}", self.name)?; #>
+//! My Name is: <# write!(_fmt, "{}", self.name)?; #>
 //! I like to eat <#= self.food #>.
 //! <# for num in 0..self.num { #>Num:<#= num + 1 #>
 //! <# } #>
@@ -61,11 +61,11 @@
 //!
 //! You can use `<#= expr #>` to print out a single expression.
 //!
-//! Maybe you noticed the magical `f` in the template. This variable gives you
+//! Maybe you noticed the magical `_fmt` in the template. This variable gives you
 //! access to the formatter and e.g. enables you to write functions in your
-//! template. `<# write!(f, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
+//! template. `<# write!(_fmt, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
 //!
-//! **Warning**: Make sure to never create a variable called `f`! You will get
+//! **Warning**: Make sure to never create a variable called `_fmt`! You will get
 //! weird compiler errors.
 
 #[macro_use]
@@ -90,7 +90,7 @@ use syn::*;
 use syn::Meta::*;
 use nom::{Err, alphanumeric, space};
 use nom::types::CompleteStr;
-use ::TemplatePart::*;
+use crate::TemplatePart::*;
 
 macro_rules! dbg_println {
     ($inf:ident) => { if $inf.debug_print { println!(); } };
@@ -164,7 +164,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
             }
             Expr(x) => {
                 builder.push_str(
-                    format!("write!(f, \"{{}}\", {})?;\n", x).as_ref()
+                    format!("write!(_fmt, \"{{}}\", {})?;\n", x).as_ref()
                 );
             }
             Directive(_) => {}
@@ -183,7 +183,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
 
     let frame = quote!{
         impl #impl_generics ::std::fmt::Display for #name #ty_generics #where_clause {
-            fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            fn fmt(&self, _fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                 let _ = include_bytes!(#path_str);
                 #(#tokens)*
                 Ok(())
@@ -244,7 +244,7 @@ fn generate_save_str_print(print_str: String) -> String {
     }
 
     let sharps = "#".repeat(max_sharp_count + 1);
-    format!("f.write_str(r{1}\"{0}\"{1})?;\n", print_str, sharps)
+    format!("_fmt.write_str(r{1}\"{0}\"{1})?;\n", print_str, sharps)
 }
 
 fn read_from_file(path: &Path) -> Result<String, std::io::Error> {

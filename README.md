@@ -36,7 +36,7 @@ fn main() {
 `doc_example1.tt`:
 ```
 Hello From Template!
-My Name is: <# write!(f, "{}", self.name)?; #>
+My Name is: <# write!(_fmt, "{}", self.name)?; #>
 I like to eat <#= self.food #>.
 <# for num in 0..self.num { #>Num:<#= num + 1 #>
 <# } #>
@@ -64,22 +64,12 @@ template text blocks.
 
 You can use `<#= expr #>` to print out a single expression.
 
-Maybe you noticed the magical `f` in the template. This variable gives you
+Maybe you noticed the magical `_fmt` in the template. This variable gives you
 access to the formatter and e.g. enables you to write functions in your
-template. `<# write!(f, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
+template. `<# write!(_fmt, "{}", self.name)?; #>` is equal to `<#= self.name #>`.
 
-**Warning**: Make sure to never create a variable called `f`! You will get
+**Warning**: Make sure to never create a variable called `_fmt`! You will get
 weird compiler errors.
-
-You can simply write rust code within code blocks.
-
-Code is written within `<#` and `#>` blocks.
-If you want to write a `<#` in template text without starting a code block
-simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
-You dont need to duplicate the `<#` within code blocks and `#>` not in
-template text blocks.
-
-You can use `<#= expr #>` to print out a single expression.
 
 # License
 Licensed under either of

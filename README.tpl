@@ -4,16 +4,6 @@
 
 {{readme}}
 
-You can simply write rust code within code blocks.
-
-Code is written within `<#` and `#>` blocks.
-If you want to write a `<#` in template text without starting a code block
-simply write it twice: `<#<#`. Same goes for the `#>` in code blocks.
-You dont need to duplicate the `<#` within code blocks and `#>` not in
-template text blocks.
-
-You can use `<#= expr #>` to print out a single expression.
-
 # License
 Licensed under either of
 
