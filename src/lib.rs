@@ -68,8 +68,7 @@
 //! **Warning**: Make sure to never create a variable called `_fmt`! You will get
 //! weird compiler errors.
 
-#[macro_use]
-extern crate quote;
+extern crate proc_macro;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -80,7 +79,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::result::Result;
 use std::option::Option;
-use proc_macro::TokenStream;
+use quote::quote;
 use syn::*;
 use syn::Meta::*;
 use crate::TemplatePart::*;
@@ -128,7 +127,7 @@ const TEMPLATE_PATH_MACRO: &str = "TemplatePath";
 const TEMPLATE_DEBUG_MACRO: &str = "TemplateDebug";
 
 #[proc_macro_derive(Template, attributes(TemplatePath, TemplateDebug))]
-pub fn transform_template(input: TokenStream) -> TokenStream {
+pub fn transform_template(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let macro_input = parse_macro_input!(input as DeriveInput);
 
     let mut path: Option<String> = None;
