@@ -81,18 +81,9 @@ use std::vec::Vec;
 
 use nom::{
 	branch::alt,
-	bytes::complete::{
-		escaped_transform,
-		is_not,
-		tag,
-		take_until,
-		take_while,
-	},
+	bytes::complete::{escaped_transform, is_not, tag, take_until, take_while},
 	character::complete::{alphanumeric1, line_ending, space0},
-	combinator::{
-		map,
-		not,
-	},
+	combinator::{map, not},
 	multi::many0,
 	sequence::tuple,
 	Err, IResult,
@@ -135,14 +126,14 @@ pub fn transform_template(
 				lit: Lit::Str(lit_str),
 				..
 			}) => {
-				if p.get_ident().expect("Attribute with no name").to_string()
+				if p.get_ident().expect("Attribute with no name")
 					== TEMPLATE_PATH_MACRO
 				{
 					path = Some(lit_str.value());
 				}
 			}
 			Path(name) => {
-				if name.get_ident().expect("Attribute with no name").to_string()
+				if name.get_ident().expect("Attribute with no name")
 					== TEMPLATE_DEBUG_MACRO
 				{
 					info.debug_print = true;
@@ -155,16 +146,13 @@ pub fn transform_template(
 	// Get template path
 	let mut path_absolute =
 		PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-	path_absolute.push(
-		&path.expect(
-			format!(
-				"Please specify a #[{}=\"<path>\"] atribute with the template \
-				 file path.",
-				TEMPLATE_PATH_MACRO
-			)
-			.as_str(),
-		),
-	);
+	path_absolute.push(&path.unwrap_or_else(|| {
+		panic!(
+			"Please specify a #[{}=\"<path>\"] atribute with the template \
+			 file path.",
+			TEMPLATE_PATH_MACRO
+		)
+	}));
 	let path =
 		&path_absolute.canonicalize().expect("Could not canonicalize path");
 	dbg_println!(
@@ -315,7 +303,7 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 					write!(file, "Dir:{:?}", dir).unwrap();
 				}
 			}
-			write!(file, "\n").unwrap();
+			writeln!(file).unwrap();
 		}
 	}
 }
@@ -331,7 +319,7 @@ fn parse_all(
 
 	dbg_println!(info, "Reading template");
 
-	while cur.len() > 0 {
+	while !cur.is_empty() {
 		let (crest, content) = parse_text(info, cur)?;
 		builder.push(Text(content));
 		cur = crest;
@@ -384,7 +372,7 @@ fn parse_text<'a>(
 		match read {
 			Ok((rest, done)) => {
 				content.push_str(&done);
-				if rest.len() == 0 {
+				if rest.is_empty() {
 					return Ok((rest, content));
 				}
 				cur = rest;
@@ -394,17 +382,17 @@ fn parse_text<'a>(
 					dbg_print!(info, " double-escape");
 					content.push_str("<#");
 
-					if rest.len() == 0 {
+					if rest.is_empty() {
 						return Ok((rest, content));
 					}
 					cur = rest;
-				} else if done.len() == 0 {
+				} else if done.is_empty() {
 					return Ok((rest, content));
 				}
 			}
 			Err(_) => {
 				if let Ok((rest, done)) = till_end(cur) {
-					if rest.len() == 0 {
+					if rest.is_empty() {
 						content.push_str(&done);
 						return Ok((rest, content));
 					}
@@ -472,11 +460,11 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 	for item in data {
 		match item {
 			Code(u) => {
-				if u.len() == 0 {
+				if u.is_empty() {
 					continue;
 				}
 				if last_type != TemplatePartType::Code {
-					if tmp_build.len() > 0 {
+					if !tmp_build.is_empty() {
 						match last_type {
 							TemplatePartType::None | TemplatePartType::Code => {
 								panic!()
@@ -495,11 +483,11 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 				tmp_build.push_str(&u);
 			}
 			Text(u) => {
-				if u.len() == 0 {
+				if u.is_empty() {
 					continue;
 				}
 				if last_type != TemplatePartType::Text {
-					if tmp_build.len() > 0 {
+					if !tmp_build.is_empty() {
 						match last_type {
 							TemplatePartType::None | TemplatePartType::Text => {
 								panic!()
@@ -518,7 +506,7 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 				tmp_build.push_str(&u);
 			}
 			Expr(u) => {
-				if tmp_build.len() > 0 {
+				if !tmp_build.is_empty() {
 					match last_type {
 						TemplatePartType::None => panic!(),
 						TemplatePartType::Code => {
@@ -539,7 +527,7 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 			Directive(_) => {}
 		}
 	}
-	if tmp_build.len() > 0 {
+	if !tmp_build.is_empty() {
 		match last_type {
 			TemplatePartType::None => {}
 			TemplatePartType::Code => combined.push(Code(tmp_build)),
@@ -729,9 +717,9 @@ enum TemplatePart {
 }
 
 impl TemplatePart {
-	fn is_text(&self) -> bool { if let &Text(_) = self { true } else { false } }
+	fn is_text(&self) -> bool { if let Text(_) = self { true } else { false } }
 
-	fn is_code(&self) -> bool { if let &Text(_) = self { false } else { true } }
+	fn is_code(&self) -> bool { if let Text(_) = self { false } else { true } }
 }
 
 #[derive(PartialEq)]
