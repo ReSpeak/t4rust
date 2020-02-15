@@ -22,9 +22,9 @@ include = [
 
 [dependencies]
 nom = "5.1"
-quote = "0.6"
-syn = "0.15"
-proc-macro2 = "0.4"
+quote = "1.0"
+syn = "1.0"
+proc-macro2 = "1.0"
 
 [lib]
 proc-macro = true

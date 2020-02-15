@@ -135,17 +135,16 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let mut info = TemplateInfo { debug_print: false, clean_whitespace: false };
 
     for attr in macro_input.attrs {
-        if let Some(meta) = attr.interpret_meta() {
-            match &meta {
-                NameValue(MetaNameValue { lit: Lit::Str(lit_str), .. }) =>
-                    if meta.name() == TEMPLATE_PATH_MACRO {
-                        path = Some(lit_str.value());
-                    },
-                Word(name) => if name == TEMPLATE_DEBUG_MACRO {
-                    info.debug_print = true;
+        let meta = attr.parse_meta().expect("Failed to parse t4 attribute");
+        match &meta {
+            NameValue(MetaNameValue { path: p, lit: Lit::Str(lit_str), .. }) =>
+                if p.get_ident().expect("Attribute with no name").to_string() == TEMPLATE_PATH_MACRO {
+                    path = Some(lit_str.value());
                 },
-                _ => {}
-            }
+            Path(name) => if name.get_ident().expect("Attribute with no name").to_string() == TEMPLATE_DEBUG_MACRO {
+                info.debug_print = true;
+            },
+            _ => {}
         }
     }
 
@@ -193,7 +192,6 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
 
     dbg_println!(info, "Generated Code:\n{}", builder);
 
-    //let tokens = syn::parse_str::<UnitStruct>(&builder).expect("Parsing template code failed!");
     let tokens: proc_macro2::TokenStream = builder.parse().expect("Parsing template code failed!");
 
     // Build frame and insert
@@ -205,7 +203,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
         impl #impl_generics ::std::fmt::Display for #name #ty_generics #where_clause {
             fn fmt(&self, _fmt: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                 let _ = include_bytes!(#path_str);
-                #(#tokens)*
+                #tokens
                 Ok(())
             }
         }

@@ -7,5 +7,7 @@ struct TextOnly { }
 
 #[test]
 pub fn text_only() {
-    format!("{}", TextOnly{});
+	let f = format!("{}", TextOnly{});
+	let f = f.trim_end_matches(|c| c == '\r' || c == '\n');
+	assert!(f == "Hello only Text.");
 }
