@@ -100,6 +100,7 @@ use nom::{ IResult, Err,
         space0,
     },
     combinator::{
+        map,
         not,
         //opt,
         //peek,
@@ -110,9 +111,6 @@ use nom::{ IResult, Err,
         tuple,
     }
 };
-//use nom::traits::{Compare, CompareResult, FindSubstring, FindToken, InputIter, InputLength, InputTake, InputTakeAtPosition};
-use nom::error::ErrorKind;
-use nom::error::ParseError;
 
 macro_rules! dbg_println {
     ($inf:ident) => { if $inf.debug_print { println!(); } };
@@ -606,31 +604,48 @@ fn till_end(s: &str) -> IResult<&str, &str> {
 }
 
 fn parse_directive(s: &str) -> IResult<&str, TemplateDirective> {
-    let (s, _) = space0(s)?;
-    let (s, dir_name) = alphanumeric1(s)?;
-    let (s, dir_param) = many0(parse_directive_param)(s)?;
-    Ok((s, TemplateDirective { name: dir_name.to_string(), params: dir_param } ))
+    map(
+    tuple((
+        space0,
+        alphanumeric1,
+        many0(parse_directive_param)
+    )),
+    |t| { TemplateDirective { name: t.1.to_string(), params: t.2 } })
+    (s)
 }
 
 fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
-    let (s, _) = space0(s)?;
-    let (s, key) = alphanumeric1(s)?;
-    let (s, _) = tuple((space0, tag("="), space0, tag("\"")))(s)?;
-    let (s, value) = escaped_transform(
-        is_not("\\\""),
-        '\\',
-        alt((
-            tag_transform("\\", "\\"),
-            tag_transform("\"", "\"")
-        )))(s)?;
-    let (s, _) = tuple((tag("\""), space0))(s)?;
-    Ok((s, (key.to_string(), value)))
+    map(
+    tuple((
+        space0,
+        alphanumeric1,
+        space0,
+        tag("="),
+        space0,
+        tag("\""),
+        escaped_transform(
+            is_not("\\\""),
+            '\\',
+            alt((
+                tag_transform("\\", "\\"),
+                tag_transform("\"", "\"")
+            ))
+        ),
+        tag("\""),
+        space0
+    )),
+    |t| { (t.1.to_string(), t.6) })
+    (s)
 }
 
 fn is_ws_till_newline(s: &str) -> IResult<&str, (usize, usize)> {
-    let (s, lenws) = space0(s)?;
-    let (s, lenlb) = line_ending(s)?;
-    Ok((s, (lenws.len(), lenlb.len())))
+    map(
+    tuple((
+        space0,
+        line_ending
+    )),
+    |t: (&str, &str)| { (t.0.len(), t.1.len()) })
+    (s)
 }
 
 fn tag_transform<'a>(s: &'a str, t: &'a str) -> impl Fn(&'a str) -> IResult<&str, &str> {
