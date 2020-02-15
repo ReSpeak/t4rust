@@ -21,7 +21,7 @@ include = [
 ]
 
 [dependencies]
-nom = "4.1"
+nom = "5.1"
 quote = "0.6"
 syn = "0.15"
 proc-macro2 = "0.4"

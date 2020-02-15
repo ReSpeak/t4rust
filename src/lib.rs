@@ -69,12 +69,7 @@
 //! weird compiler errors.
 
 #[macro_use]
-extern crate nom;
-extern crate proc_macro;
-extern crate proc_macro2;
-#[macro_use]
 extern crate quote;
-extern crate syn;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
@@ -88,9 +83,36 @@ use std::option::Option;
 use proc_macro::TokenStream;
 use syn::*;
 use syn::Meta::*;
-use nom::{Err, alphanumeric, space};
-use nom::types::CompleteStr;
 use crate::TemplatePart::*;
+use nom::{ IResult, Err,
+    branch::alt,
+    bytes::complete::{
+        escaped_transform,
+        //is_a,
+        is_not,
+        tag,
+        take_until,
+        take_while,
+    },
+    character::complete::{
+        alphanumeric1,
+        line_ending,
+        space0,
+    },
+    combinator::{
+        not,
+        //opt,
+        //peek,
+    },
+    multi::many0,
+    sequence::{
+        //pair,
+        tuple,
+    }
+};
+//use nom::traits::{Compare, CompareResult, FindSubstring, FindToken, InputIter, InputLength, InputTake, InputTakeAtPosition};
+use nom::error::ErrorKind;
+use nom::error::ParseError;
 
 macro_rules! dbg_println {
     ($inf:ident) => { if $inf.debug_print { println!(); } };
@@ -141,7 +163,7 @@ pub fn transform_template(input: TokenStream) -> TokenStream {
     let read = read_from_file(path).expect("Could not read file");
 
     // Parse template file
-    let mut data = parse_all(&mut info, CompleteStr(&read)).expect("Parse failed!");
+    let mut data = parse_all(&mut info, &read).expect("Parse failed!");
 
     if info.debug_print {
         debug_to_file(path, &data);
@@ -284,7 +306,7 @@ fn debug_to_file(path: &Path, data: &[TemplatePart]) {
 }
 
 /// Transforms template code into an intermediate representation
-fn parse_all(info: &mut TemplateInfo, input: CompleteStr) -> Result<Vec<TemplatePart>, TemplateError> {
+fn parse_all(info: &mut TemplateInfo, input: &str) -> Result<Vec<TemplatePart>, TemplateError> {
     let mut builder: Vec<TemplatePart> = Vec::new();
     let mut cur = input;
 
@@ -305,14 +327,14 @@ fn parse_all(info: &mut TemplateInfo, input: CompleteStr) -> Result<Vec<Template
         } else if let Ok((rest, _)) = template_directive_start(cur) {
             dbg_print!(info, " directive start");
             let (crest, content) =  parse_code(info, rest)?;
-            let dir = parse_directive(CompleteStr(&content));
+            let dir = parse_directive(&content);
             dbg_println!(info, " Directive: {:?}", dir);
             match dir {
                 Ok((_, dir)) => {
                     apply_directive(info, &dir);
                     builder.push(Directive(dir));
                 }
-                _ => return Err(TemplateError { index: 0 }),
+                Err(_) => return Err(TemplateError { index: 0 }),
             }
             cur = crest;
         } else if let Ok((rest, _)) = code_start(cur) {
@@ -330,7 +352,7 @@ fn parse_all(info: &mut TemplateInfo, input: CompleteStr) -> Result<Vec<Template
     Result::Ok(builder)
 }
 
-fn parse_text<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(CompleteStr<'a>, String), TemplateError> {
+fn parse_text<'a>(info: &TemplateInfo, input: &'a str) -> Result<(&'a str, String), TemplateError> {
     let mut content = String::new();
     let mut cur = input;
 
@@ -357,7 +379,7 @@ fn parse_text<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(Comple
                     return Ok((rest, content));
                 }
             }
-            _ => {
+            Err(_) => {
                 if let Ok((rest, done)) = till_end(cur) {
                     if rest.len() == 0 {
                         content.push_str(&done);
@@ -377,7 +399,7 @@ fn parse_text<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(Comple
     }
 }
 
-fn parse_code<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(CompleteStr<'a>, String), TemplateError> {
+fn parse_code<'a>(info: &TemplateInfo, input: &'a str) -> Result<(&'a str, String), TemplateError> {
     let mut content = String::new();
     let mut cur = input;
 
@@ -395,7 +417,7 @@ fn parse_code<'a>(info: &TemplateInfo, input: CompleteStr<'a>) -> Result<(Comple
                     dbg_print!(info, " double-escape");
                     content.push_str("#>");
                     cur = rest;
-                }
+                } else { panic!("Nothing, i guess?"); }
             }
             Err(Err::Failure(context)) | Err(Err::Error(context)) => {
                 dbg_println!(info, "Error at code {:?}", context);
@@ -502,7 +524,7 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
             res_a = was_b_clean;
         } else if let Text(ref text_a) = tri[0] {
             let rev_txt: String = text_a.chars().rev().collect();
-            if let Ok((_,a_len)) = is_ws_till_newline(CompleteStr(&rev_txt)) {
+            if let Ok((_,a_len)) = is_ws_till_newline(&rev_txt) {
                 res_a = Some(a_len);
             } else {
                 continue;
@@ -511,7 +533,7 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
 
         let mut res_b = None;
         if let Text(ref text_b) = tri[2] {
-            if let Ok((_,b_len)) = is_ws_till_newline(CompleteStr(&text_b)) {
+            if let Ok((_,b_len)) = is_ws_till_newline(&text_b) {
                 res_b = Some(b_len);
             } else {
                 continue;
@@ -528,7 +550,7 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
 
         if let Text(ref mut text_b) = tri[2] {
             let rev_txt: String = text_b.chars().rev().collect();
-            if let Ok((_,b_len)) = is_ws_till_newline(CompleteStr(&rev_txt)) {
+            if let Ok((_,b_len)) = is_ws_till_newline(&rev_txt) {
                 was_b_clean = Some(b_len);
                 clean_index = i + 2;
             }
@@ -554,54 +576,71 @@ fn apply_directive(info: &mut TemplateInfo, directive: &TemplateDirective) {
     }
 }
 
-named!(
-    code_start<CompleteStr, CompleteStr>,
-    do_parse!(first: tag!("<#") >> not!(tag!("<#")) >> (first))
-);
-named!(expression_start<CompleteStr, CompleteStr>, do_parse!(first: tag!("<#=") >> (first)));
-named!(template_directive_start<CompleteStr, CompleteStr>, do_parse!(first: tag!("<#@") >> (first)));
-named!(read_text<CompleteStr, CompleteStr>, take_until!("<#"));
-named!(double_code_start<CompleteStr, CompleteStr>, tag!("<#<#"));
+// NOM DECLARATIONS ===========================================================
 
-named!(
-    code_end<CompleteStr, CompleteStr>,
-    do_parse!(first: tag!("#>") >> not!(tag!("#>")) >> (first))
-);
-named!(read_code<CompleteStr, CompleteStr>, take_until!("#>"));
-named!(double_code_end<CompleteStr, CompleteStr>, tag!("#>#>"));
+fn expression_start(s: &str) -> IResult<&str, &str> { tag("<#=")(s) }
+fn template_directive_start(s: &str) -> IResult<&str, &str> { tag("<#@")(s) }
+fn read_text(s: &str) -> IResult<&str, &str> { take_until("<#")(s) }
 
-named!(till_end<CompleteStr, CompleteStr>, take_while!(|_| true));
+fn code_start(s: &str) -> IResult<&str, &str> {
+    //pair(tag("<#"), not(peek(tag("<#"))))(s)?
+    let (s, r) = tag("<#")(s)?;
+    not(tag("<#"))(s)?;
+    Ok((s, r))
+}
+fn double_code_start(s: &str) -> IResult<&str, &str> { tag("<#<#")(s) }
 
-named!(parse_directive<CompleteStr, TemplateDirective>, do_parse!(
-    opt!(call!(space)) >>
-    dir_name : call!(alphanumeric) >>
-    dir_param : many0!(call!(parse_directive_param)) >>
-    (TemplateDirective { name: dir_name.to_string(), params: dir_param } )
-));
+fn code_end(s: &str) -> IResult<&str, &str> {
+    let (s, r) = tag("#>")(s)?;
+    not(tag("#>"))(s)?;
+    Ok((s, r))
+}
+fn double_code_end(s: &str) -> IResult<&str, &str> { tag("#>#>")(s) }
 
-named!(not_quote<CompleteStr, CompleteStr>, is_not!("\\\""));
+fn read_code(s: &str) -> IResult<&str, &str> {
+    take_until("#>")(s)
+}
 
-named!(parse_directive_param<CompleteStr, (String, String)>, do_parse!(
-    opt!(call!(space)) >>
-    key : call!(alphanumeric) >>
-    tag!("=") >>
-    tag!("\"") >>
-    value : escaped_transform!(call!(not_quote), '\\',
-        alt!(
-              tag!("\\") => { |_| "\\" }
-            | tag!("\"") => { |_| "\"" }
-        )) >>
-    tag!("\"") >>
-    opt!(call!(space)) >>
-    (key.to_string(), value.to_string())
-));
+fn till_end(s: &str) -> IResult<&str, &str> {
+    take_while(|_| true)(s)
+}
 
-named!(is_ws_till_newline<CompleteStr, (usize, usize)>,do_parse!(
-    lenws: opt!(is_a_s!(" \t")) >>
-    lenlb: alt_complete!(tag!("\r\n") | tag!("\n\r") | tag!("\n") | tag!("\r")) >>
-    ( if let Some(ws) = lenws { ws.len() } else { 0 } , lenlb.len() ) )
-);
+fn parse_directive(s: &str) -> IResult<&str, TemplateDirective> {
+    let (s, _) = space0(s)?;
+    let (s, dir_name) = alphanumeric1(s)?;
+    let (s, dir_param) = many0(parse_directive_param)(s)?;
+    Ok((s, TemplateDirective { name: dir_name.to_string(), params: dir_param } ))
+}
 
+fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
+    let (s, _) = space0(s)?;
+    let (s, key) = alphanumeric1(s)?;
+    let (s, _) = tuple((space0, tag("="), space0, tag("\"")))(s)?;
+    let (s, value) = escaped_transform(
+        is_not("\\\""),
+        '\\',
+        alt((
+            tag_transform("\\", "\\"),
+            tag_transform("\"", "\"")
+        )))(s)?;
+    let (s, _) = tuple((tag("\""), space0))(s)?;
+    Ok((s, (key.to_string(), value)))
+}
+
+fn is_ws_till_newline(s: &str) -> IResult<&str, (usize, usize)> {
+    let (s, lenws) = space0(s)?;
+    let (s, lenlb) = line_ending(s)?;
+    Ok((s, (lenws.len(), lenlb.len())))
+}
+
+fn tag_transform<'a>(s: &'a str, t: &'a str) -> impl Fn(&'a str) -> IResult<&str, &str> {
+    move |i: &'a str| {
+        let (r, _) = tag(s)(i)?;
+        Ok((r, t))
+    }
+}
+
+// NOM END ====================================================================
 
 #[derive(Debug)]
 struct TemplateError {

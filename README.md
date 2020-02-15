@@ -1,4 +1,4 @@
-# t4rust
+﻿# t4rust
 
 [![dependency status](https://deps.rs/repo/github/ReSpeak/t4rust/status.svg)](https://deps.rs/repo/github/ReSpeak/t4rust)
 
