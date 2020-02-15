@@ -1,4 +1,4 @@
-﻿# t4rust
+# t4rust
 
 [![dependency status](https://deps.rs/repo/github/ReSpeak/t4rust/status.svg)](https://deps.rs/repo/github/ReSpeak/t4rust)
 
@@ -9,8 +9,7 @@ t4rust is a minimal templating engine, inspired by the [T4](https://docs.microso
 A simple example how to create a template.
 
 ```rust
-#[macro_use]
-extern crate t4rust_derive;
+use t4rust_derive::Template;
 
 // Add this attribute to use a template
 #[derive(Template)]

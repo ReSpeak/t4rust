@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate t4rust_derive;
+use t4rust_derive::Template;
 
 #[derive(Template)]
 #[TemplatePath = "./examples/recompile.tt"]

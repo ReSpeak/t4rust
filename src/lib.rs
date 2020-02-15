@@ -5,8 +5,7 @@
 //! A simple example how to create a template.
 //!
 //! ```
-//! #[macro_use]
-//! extern crate t4rust_derive;
+//! use t4rust_derive::Template;
 //!
 //! // Add this attribute to use a template
 //! #[derive(Template)]

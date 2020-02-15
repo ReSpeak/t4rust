@@ -1,5 +1,4 @@
-#[macro_use]
-extern crate t4rust_derive;
+use t4rust_derive::Template;
 
 #[derive(Template)]
 #[TemplatePath = "./tests/text_only.tt"]
@@ -9,5 +8,5 @@ struct TextOnly { }
 pub fn text_only() {
 	let f = format!("{}", TextOnly{});
 	let f = f.trim_end_matches(|c| c == '\r' || c == '\n');
-	assert!(f == "Hello only Text.");
+	assert_eq!(f, "Hello only Text.");
 }
