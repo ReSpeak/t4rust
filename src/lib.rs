@@ -649,37 +649,26 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
 }
 
 fn apply_directive(info: &mut TemplateInfo, directive: &TemplateDirective) {
-	match directive.name.as_ref() {
-		"template" => {
-			for &(ref key, ref value) in &directive.params {
-				match key.as_ref() {
-					"debug" => {
-						info.debug_print = value.parse::<bool>().unwrap();
-					}
-					"cleanws" | "clean_whitespace" => {
-						info.clean_whitespace = value.parse::<bool>().unwrap();
-					}
-					_ => println!(
-						"Unrecognized template parameter \"{}\" in \"{}\"",
-						key, directive.name
-					),
-				}
+	for (key, value) in directive
+		.params
+		.iter()
+		.map(|p| ((directive.name.as_str(), p.0.as_str()), p.1.as_str()))
+	{
+		match key {
+			("template", "debug") => {
+				info.debug_print = value.parse::<bool>().unwrap()
 			}
-		}
-		"escape" => {
-			for &(ref key, ref value) in &directive.params {
-				match key.as_ref() {
-					"function" => {
-						info.print_postprocessor = value.clone();
-					}
-					_ => println!(
-						"Unrecognized template parameter \"{}\" in \"{}\"",
-						key, directive.name
-					),
-				}
+			("template", "cleanws") | ("template", "clean_whitespace") => {
+				info.clean_whitespace = value.parse::<bool>().unwrap()
 			}
+			("escape", "function") => {
+				info.print_postprocessor = value.to_string()
+			}
+			_ => println!(
+				"Unrecognized template parameter \"{}\" in \"{}\"",
+				key.0, key.1
+			),
 		}
-		_ => println!("Unrecognized template dirctive \"{}\"", directive.name),
 	}
 }
 
