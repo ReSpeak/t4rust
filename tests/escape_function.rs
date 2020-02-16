@@ -21,7 +21,7 @@ fn escape_function() {
 
 	assert_eq!(
 		f,
-		"\nThis comment section is completely bad word free:
+		"This comment section is completely bad word free:
  - This comment does not contain the word ****, oh wait
 This comment is unfiltered:
  - This comment does not contain the word peck, oh wait"

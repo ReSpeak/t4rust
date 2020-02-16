@@ -195,7 +195,7 @@ pub fn transform_template(
 		debug_to_file(path, &data);
 	}
 
-	parse_postprocess(&mut info, &mut data);
+	parse_postprocess(&mut data);
 
 	let data = parse_optimize(data);
 
@@ -583,7 +583,8 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 
 /// Applies template directives like 'cleanws' and modifies the input
 /// accordingly.
-fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
+fn parse_postprocess(data: &mut Vec<TemplatePart>) {
+	let mut info = TemplateInfo::default();
 	let mut was_b_clean = None;
 	let mut clean_index = 0;
 
@@ -594,8 +595,8 @@ fn parse_postprocess(info: &mut TemplateInfo, data: &mut Vec<TemplatePart>) {
 
 	for i in 0..(data.len() - 2) {
 		let tri = data[i..(i + 3)].as_mut();
-		if let Directive(ref dir) = tri[0] {
-			apply_directive(info, dir);
+		if let Directive(ref dir) = tri[1] {
+			apply_directive(&mut info, dir);
 		}
 
 		if !info.clean_whitespace
@@ -698,15 +699,12 @@ fn till_end(s: &str) -> IResult<&str, &str> { take_while(|_| true)(s) }
 
 fn parse_directive(s: &str) -> IResult<&str, TemplateDirective> {
 	map(
-		tuple((
-			space0,
-			alphanumeric1,
-			many0(parse_directive_param),
-			not(peek(take(1usize))),
-		)),
+		tuple((space0, alphanumeric1, many0(parse_directive_param), at_end)),
 		|t| TemplateDirective { name: t.1.to_string(), params: t.2 },
 	)(s)
 }
+
+fn at_end(s: &str) -> IResult<&str, ()> { not(peek(take(1usize)))(s) }
 
 fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
 	map(
@@ -730,9 +728,10 @@ fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
 }
 
 fn is_ws_till_newline(s: &str) -> IResult<&str, (usize, usize)> {
-	map(tuple((space0, line_ending)), |t: (&str, &str)| (t.0.len(), t.1.len()))(
-		s,
-	)
+	map(
+		tuple((space0, alt((line_ending, map(at_end, |_| ""))))),
+		|t: (&str, &str)| (t.0.len(), t.1.len()),
+	)(s)
 }
 
 fn tag_transform<'a>(

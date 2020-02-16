@@ -1,0 +1,14 @@
+<#@ template debug="false" cleanws="true" #>
+text
+<# /* dummy */ #>
+<# /* dummy? */ #>
+text2
+<# /* dummy3 */ #>
+text3
+<#@ template debug="false" cleanws="false" #>
+text
+<# /* dummy */ #>
+<# /* dummy? */ #>
+text2
+<# /* dummy3 */ #>
+text3
