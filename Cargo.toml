@@ -1,6 +1,6 @@
 [package]
 name = "t4rust-derive"
-version = "0.1.4"
+version = "0.2.0"
 authors = ["Splamy <splamyn@gmail.com>"]
 description = """
 t4rust is a compile-time templating-engine which allows you to write plain rust
