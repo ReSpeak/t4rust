@@ -1,4 +1,4 @@
-# t4rust
+﻿# t4rust
 
 [![dependency status](https://deps.rs/repo/github/ReSpeak/t4rust/status.svg)](https://deps.rs/repo/github/ReSpeak/t4rust)
 
@@ -69,6 +69,28 @@ template. `<# write!(_fmt, "{}", self.name)?; #>` is equal to `<#= self.name #>`
 
 **Warning**: Make sure to never create a variable called `_fmt`! You will get
 weird compiler errors.
+
+## Features
+
+### Auto-escaping
+
+Use the `escape` directive in your .tt file:
+```
+<#@ escape function="escape_html" #>`
+```
+
+And a function with this signature in your code:
+```rust
+fn escape_html(s: &str) -> String {
+    todo!(); /* Your escaping code here */
+}
+```
+
+All expression blocks (e.g. `<#= self.name #>`) will call the escape
+function before inserted.
+
+You can redeclare this directive as many times and where you want in your
+template to change or disable (with `function=""`) the escape function.
 
 # License
 Licensed under either of

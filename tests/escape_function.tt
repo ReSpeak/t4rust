@@ -1,0 +1,7 @@
+<#@ template debug="false" cleanws="true" #>
+<#@ escape function="filter_bad_word" #>
+This comment section is completely bad word free:
+ - <#= self.comment #>
+<#@ escape function="" #>
+This comment is unfiltered:
+ - <#= self.comment #>

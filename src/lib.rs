@@ -66,6 +66,28 @@
 //!
 //! **Warning**: Make sure to never create a variable called `_fmt`! You will get
 //! weird compiler errors.
+//!
+//! # Features
+//!
+//! ## Auto-escaping
+//!
+//! Use the `escape` directive in your .tt file:
+//! ```text
+//! <#@ escape function="escape_html" #>`
+//! ```
+//!
+//! And a function with this signature in your code:
+//! ```rust
+//! fn escape_html(s: &str) -> String {
+//!     todo!(); /* Your escaping code here */
+//! }
+//! ```
+//!
+//! All expression blocks (e.g. `<#= self.name #>`) will call the escape
+//! function before inserted.
+//!
+//! You can redeclare this directive as many times and where you want in your
+//! template to change or disable (with `function=""`) the escape function.
 
 extern crate proc_macro;
 
@@ -81,12 +103,14 @@ use std::vec::Vec;
 
 use nom::{
 	branch::alt,
-	bytes::complete::{escaped_transform, is_not, tag, take_until, take_while},
+	bytes::complete::{
+		escaped_transform, is_not, tag, take, take_until, take_while,
+	},
 	character::complete::{alphanumeric1, line_ending, space0},
-	combinator::{map, not},
+	combinator::{map, not, opt, peek},
 	multi::many0,
 	sequence::tuple,
-	Err, IResult,
+	IResult,
 };
 use quote::quote;
 use syn::Meta::*;
@@ -116,7 +140,7 @@ pub fn transform_template(
 	let macro_input = parse_macro_input!(input as DeriveInput);
 
 	let mut path: Option<String> = None;
-	let mut info = TemplateInfo { debug_print: false, clean_whitespace: false };
+	let mut info = TemplateInfo::default();
 
 	for attr in macro_input.attrs {
 		let meta = attr.parse_meta().expect("Failed to parse t4 attribute");
@@ -176,21 +200,22 @@ pub fn transform_template(
 	let data = parse_optimize(data);
 
 	// Build code from template
+	info = TemplateInfo::default();
 	let mut builder = String::new();
 	for part in data {
 		match part {
 			Text(x) => {
-				builder.push_str(generate_save_str_print(x).as_ref());
+				builder.push_str(generate_save_str_print(&x).as_ref());
 			}
 			Code(x) => {
 				builder.push_str(x.as_ref());
 			}
 			Expr(x) => {
-				builder.push_str(
-					format!("write!(_fmt, \"{{}}\", {})?;\n", x).as_ref(),
-				);
+				builder.push_str(generate_expression_print(&x, &info).as_ref());
 			}
-			Directive(_) => {}
+			Directive(dir) => {
+				apply_directive(&mut info, &dir);
+			}
 		}
 	}
 
@@ -255,7 +280,22 @@ pub fn transform_template(
 	}
 }
 
-fn generate_save_str_print(print_str: String) -> String {
+fn generate_expression_print(print_expr: &str, info: &TemplateInfo) -> String {
+	if info.print_postprocessor.is_empty() {
+		format!("write!(_fmt, \"{{}}\", {})?;\n", print_expr)
+	} else {
+		format!(
+			"{{
+			let _s = format!(\"{{}}\", {});
+			let _s_transfomed = {}(&_s);
+			_fmt.write_str(&_s_transfomed);
+			}}\n",
+			print_expr, info.print_postprocessor
+		)
+	}
+}
+
+fn generate_save_str_print(print_str: &str) -> String {
 	let mut max_sharp_count = 0;
 	let mut cur_sharp_count = 0;
 
@@ -341,7 +381,16 @@ fn parse_all(
 					apply_directive(info, &dir);
 					builder.push(Directive(dir));
 				}
-				Err(_) => return Err(TemplateError { index: 0 }),
+				Err(_) => {
+					println!("Malformed directive: {}", &content);
+					return Err(TemplateError {
+						index: 0,
+						reason: format!(
+							"Could not understand the directive: {}",
+							&content
+						),
+					});
+				}
 			}
 			cur = crest;
 		} else if let Ok((rest, _)) = code_start(cur) {
@@ -397,16 +446,9 @@ fn parse_text<'a>(
 						return Ok((rest, content));
 					}
 				}
-				match read {
-					Err(Err::Failure(context)) | Err(Err::Error(context)) => {
-						dbg_println!(info, "Error at text {:?}", context)
-					}
-					Err(Err::Incomplete(sizey)) => {
-						dbg_println!(info, "Missing at text {:?}", sizey)
-					}
-					_ => unreachable!(),
-				}
-				return Err(TemplateError { index: 1 });
+				panic!(
+					"Reached unknown parsing state (!read_text > !till_end)"
+				);
 			}
 		}
 
@@ -440,13 +482,12 @@ fn parse_code<'a>(
 					panic!("Nothing, i guess?");
 				}
 			}
-			Err(Err::Failure(context)) | Err(Err::Error(context)) => {
-				dbg_println!(info, "Error at code {:?}", context);
-				return Err(TemplateError { index: 2 });
-			}
-			Err(Err::Incomplete(sizey)) => {
-				dbg_println!(info, "Missing at code {:?}", sizey);
-				return Err(TemplateError { index: 3 });
+			Err(err) => {
+				dbg_println!(info, "Error at code {:?}", err);
+				return Err(TemplateError {
+					index: 0,
+					reason: "Unclosed code or expression block".into(),
+				});
 			}
 		}
 	}
@@ -524,7 +565,9 @@ fn parse_optimize(data: Vec<TemplatePart>) -> Vec<TemplatePart> {
 				last_type = TemplatePartType::Expr;
 				tmp_build.push_str(&u);
 			}
-			Directive(_) => {}
+			Directive(d) => {
+				combined.push(Directive(d));
+			}
 		}
 	}
 	if !tmp_build.is_empty() {
@@ -611,10 +654,23 @@ fn apply_directive(info: &mut TemplateInfo, directive: &TemplateDirective) {
 			for &(ref key, ref value) in &directive.params {
 				match key.as_ref() {
 					"debug" => {
-						info.debug_print = value.parse::<bool>().unwrap()
+						info.debug_print = value.parse::<bool>().unwrap();
 					}
-					"cleanws" => {
-						info.clean_whitespace = value.parse::<bool>().unwrap()
+					"cleanws" | "clean_whitespace" => {
+						info.clean_whitespace = value.parse::<bool>().unwrap();
+					}
+					_ => println!(
+						"Unrecognized template parameter \"{}\" in \"{}\"",
+						key, directive.name
+					),
+				}
+			}
+		}
+		"escape" => {
+			for &(ref key, ref value) in &directive.params {
+				match key.as_ref() {
+					"function" => {
+						info.print_postprocessor = value.clone();
 					}
 					_ => println!(
 						"Unrecognized template parameter \"{}\" in \"{}\"",
@@ -652,9 +708,15 @@ fn read_code(s: &str) -> IResult<&str, &str> { take_until("#>")(s) }
 fn till_end(s: &str) -> IResult<&str, &str> { take_while(|_| true)(s) }
 
 fn parse_directive(s: &str) -> IResult<&str, TemplateDirective> {
-	map(tuple((space0, alphanumeric1, many0(parse_directive_param))), |t| {
-		TemplateDirective { name: t.1.to_string(), params: t.2 }
-	})(s)
+	map(
+		tuple((
+			space0,
+			alphanumeric1,
+			many0(parse_directive_param),
+			not(peek(take(1usize))),
+		)),
+		|t| TemplateDirective { name: t.1.to_string(), params: t.2 },
+	)(s)
 }
 
 fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
@@ -666,15 +728,15 @@ fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
 			tag("="),
 			space0,
 			tag("\""),
-			escaped_transform(
+			opt(escaped_transform(
 				is_not("\\\""),
 				'\\',
 				alt((tag_transform("\\", "\\"), tag_transform("\"", "\""))),
-			),
+			)),
 			tag("\""),
 			space0,
 		)),
-		|t| (t.1.to_string(), t.6),
+		|t| (t.1.to_string(), t.6.unwrap_or_else(|| "".to_string())),
 	)(s)
 }
 
@@ -699,6 +761,7 @@ fn tag_transform<'a>(
 
 #[derive(Debug)]
 struct TemplateError {
+	reason: String,
 	index: usize,
 }
 
@@ -730,7 +793,19 @@ enum TemplatePartType {
 	Expr,
 }
 
+#[derive(Debug)]
 struct TemplateInfo {
 	debug_print: bool,
 	clean_whitespace: bool,
+	print_postprocessor: String,
+}
+
+impl TemplateInfo {
+	fn default() -> Self {
+		Self {
+			debug_print: false,
+			clean_whitespace: false,
+			print_postprocessor: "".into(),
+		}
+	}
 }
