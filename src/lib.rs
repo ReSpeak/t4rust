@@ -288,7 +288,7 @@ fn generate_expression_print(print_expr: &str, info: &TemplateInfo) -> String {
 			"{{
 			let _s = format!(\"{{}}\", {});
 			let _s_transfomed = {}(&_s);
-			_fmt.write_str(&_s_transfomed);
+			_fmt.write_str(&_s_transfomed)?;
 			}}\n",
 			print_expr, info.print_postprocessor
 		)
