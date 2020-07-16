@@ -601,7 +601,7 @@ fn parse_postprocess(data: &mut Vec<TemplatePart>) {
 
 		if !info.clean_whitespace
 			|| !tri[0].is_text()
-			|| !tri[1].is_code()
+			|| !tri[1].should_trim_whitespace()
 			|| !tri[2].is_text()
 		{
 			continue;
@@ -614,6 +614,9 @@ fn parse_postprocess(data: &mut Vec<TemplatePart>) {
 			let rev_txt: String = text_a.chars().rev().collect();
 			if let Ok((_, a_len)) = is_ws_till_newline(&rev_txt) {
 				res_a = Some(a_len);
+			} else if i == 0 && text_a.is_empty() {
+				// Start of file
+				res_a = Some((0, 0));
 			} else {
 				continue;
 			}
@@ -729,7 +732,7 @@ fn parse_directive_param(s: &str) -> IResult<&str, (String, String)> {
 
 fn is_ws_till_newline(s: &str) -> IResult<&str, (usize, usize)> {
 	map(
-		tuple((space0, alt((line_ending, map(at_end, |_| ""))))),
+		tuple((space0, line_ending)),
 		|t: (&str, &str)| (t.0.len(), t.1.len()),
 	)(s)
 }
@@ -768,9 +771,11 @@ enum TemplatePart {
 }
 
 impl TemplatePart {
-	fn is_text(&self) -> bool { if let Text(_) = self { true } else { false } }
+	fn is_text(&self) -> bool { matches!(self, Text(_)) }
 
-	fn is_code(&self) -> bool { if let Text(_) = self { false } else { true } }
+	/// Whitespace should only be trimmed for code and directive blocks, we want to keep it for
+	/// expressions.
+	fn should_trim_whitespace(&self) -> bool { matches!(self, Code(_) | Directive(_)) }
 }
 
 #[derive(PartialEq)]
