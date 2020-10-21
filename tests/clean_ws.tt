@@ -1,9 +1,11 @@
 <#@ template debug="false" cleanws="true" #>
 text
 <# /* dummy */ #>
-<# /* dummy? */ #>
+  <# /* dummy? */ #>
 text2
 <# /* dummy3 */ #>
+  <#= "indented" #>
+<#= "unindented" #>
 text3
 <#@ template debug="false" cleanws="false" #>
 text

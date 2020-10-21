@@ -12,7 +12,7 @@ struct CleanWs2;
 pub fn clean_ws() {
 	let f = format!("{}", CleanWs);
 	println!("{:?}", f);
-	assert_eq!(f, "text\ntext2\ntext3\n\ntext\n\n\ntext2\n\ntext3\n");
+	assert_eq!(f, "text\ntext2\n  indented\nunindented\ntext3\n\ntext\n\n\ntext2\n\ntext3\n");
 }
 
 #[test]
